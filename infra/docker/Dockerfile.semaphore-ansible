@@ -1,0 +1,26 @@
+FROM local/semaphore-overview:overview-v16
+
+USER root
+
+ENV ANSIBLE_VENV=/opt/semaphore/apps/ansible/11.1.0/venv
+ENV PATH="${ANSIBLE_VENV}/bin:${PATH}"
+
+COPY infra/ansible/requirements.txt /tmp/requirements.txt
+COPY infra/ansible/collections/requirements.yml /tmp/collections-requirements.yml
+
+RUN apk add --no-cache \
+      bash \
+      git \
+      openssh-client \
+    && pip install --no-cache-dir -r /tmp/requirements.txt \
+    && ansible-galaxy collection install -r /tmp/collections-requirements.yml \
+    && ln -sf ${ANSIBLE_VENV}/bin/ansible /usr/local/bin/ansible \
+    && ln -sf ${ANSIBLE_VENV}/bin/ansible-config /usr/local/bin/ansible-config \
+    && ln -sf ${ANSIBLE_VENV}/bin/ansible-console /usr/local/bin/ansible-console \
+    && ln -sf ${ANSIBLE_VENV}/bin/ansible-doc /usr/local/bin/ansible-doc \
+    && ln -sf ${ANSIBLE_VENV}/bin/ansible-galaxy /usr/local/bin/ansible-galaxy \
+    && ln -sf ${ANSIBLE_VENV}/bin/ansible-inventory /usr/local/bin/ansible-inventory \
+    && ln -sf ${ANSIBLE_VENV}/bin/ansible-playbook /usr/local/bin/ansible-playbook \
+    && ln -sf ${ANSIBLE_VENV}/bin/ansible-pull /usr/local/bin/ansible-pull \
+    && ln -sf ${ANSIBLE_VENV}/bin/ansible-vault /usr/local/bin/ansible-vault \
+    && rm -rf /root/.cache /tmp/requirements.txt /tmp/collections-requirements.yml

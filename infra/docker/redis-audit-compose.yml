@@ -1,0 +1,35 @@
+services:
+  redis-audit:
+    image: redis:7-alpine
+    container_name: REDIS-AUDIT
+    command: >
+      redis-server
+      --appendonly yes
+      --requirepass ${REDIS_PASSWORD}
+      --save 60 1000
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_audit_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "PING"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+
+  redisinsight:
+    image: redis/redisinsight:latest
+    container_name: REDISINSIGHT
+    restart: unless-stopped
+    ports:
+      - "5540:5540"
+    volumes:
+      - redisinsight_data:/data
+    depends_on:
+      redis-audit:
+        condition: service_healthy
+
+volumes:
+  redis_audit_data:
+  redisinsight_data:

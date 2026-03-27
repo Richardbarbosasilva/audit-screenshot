@@ -1,0 +1,36 @@
+---
+- name: Install or update ShareX on pilot hosts
+  hosts: sharex_pilot
+  gather_facts: false
+  serial: 1
+
+  tasks:
+    - name: Ensure temp installer directory exists
+      ansible.windows.win_file:
+        path: C:\Windows\Temp
+        state: directory
+
+    - name: Copy ShareX installer to remote host
+      ansible.windows.win_copy:
+        src: "{{ sharex_installer_local_path }}"
+        dest: "{{ sharex_installer_remote_path }}"
+
+    - name: Install ShareX silently
+      ansible.windows.win_package:
+        path: "{{ sharex_installer_remote_path }}"
+        arguments:
+          - /VERYSILENT
+          - /SUPPRESSMSGBOXES
+          - /NORESTART
+          - /SP-
+          - /NORUN
+          - /UPDATE
+        state: present
+      register: sharex_install
+
+    - name: Show ShareX installation result
+      ansible.builtin.debug:
+        msg:
+          - "Host: {{ inventory_hostname }}"
+          - "Changed: {{ sharex_install.changed }}"
+          - "RC: {{ sharex_install.rc | default('n/a') }}"

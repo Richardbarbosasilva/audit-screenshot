@@ -1,0 +1,831 @@
+from __future__ import annotations
+
+import argparse
+import getpass
+import hashlib
+import json
+import logging
+from logging.handlers import RotatingFileHandler
+import os
+import re
+import socket
+import sqlite3
+import sys
+import time
+import uuid
+from datetime import datetime
+from pathlib import Path
+from typing import Any
+from urllib.error import URLError
+from urllib.request import Request, urlopen
+
+import boto3
+from botocore.client import Config as BotoConfig
+from botocore.exceptions import BotoCoreError, ClientError
+from PIL import Image, ImageDraw, ImageFont
+
+VALID_EXTENSIONS = {".png", ".jpg", ".jpeg"}
+DEFAULT_CONFIG_PATH = Path(__file__).resolve().with_name("agent_config.json")
+DEFAULT_EXTERNAL_IP_SERVICES = [
+    "https://api64.ipify.org",
+    "https://ifconfig.me/ip",
+    "https://icanhazip.com",
+]
+WINDOWS_FONT_CANDIDATES = [
+    r"C:\Windows\Fonts\segoeui.ttf",
+    r"C:\Windows\Fonts\arial.ttf",
+    r"C:\Windows\Fonts\calibri.ttf",
+]
+LINUX_FONT_CANDIDATES = [
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+]
+
+
+def default_data_root() -> str:
+    if os.name == "nt":
+        return r"%ProgramData%\ScreenshotAudit"
+    return "/var/tmp/ScreenshotAudit"
+
+
+DEFAULT_CONFIG: dict[str, Any] = {
+    "agent_version": "0.1.0-pilot",
+    "sharex_profile_version": "pilot-1",
+    "poll_interval_seconds": 2,
+    "retry_backoff_seconds": 15,
+    "retry_backoff_max_seconds": 300,
+    "max_retry_attempts": 0,
+    "delete_local_after_success": True,
+    "log_level": "INFO",
+    "paths": {
+        "spool_dir": f"{default_data_root()}\\spool" if os.name == "nt" else f"{default_data_root()}/spool",
+        "tmp_dir": f"{default_data_root()}\\tmp" if os.name == "nt" else f"{default_data_root()}/tmp",
+        "db_path": f"{default_data_root()}\\data\\queue.db" if os.name == "nt" else f"{default_data_root()}/data/queue.db",
+        "log_path": f"{default_data_root()}\\logs\\agent.log" if os.name == "nt" else f"{default_data_root()}/logs/agent.log",
+    },
+    "watermark": {
+        "enabled": True,
+        "logo_path": f"{default_data_root()}\\assets\\logo.png" if os.name == "nt" else f"{default_data_root()}/assets/logo.png",
+    },
+    "external_ip_services": DEFAULT_EXTERNAL_IP_SERVICES,
+    "external_ip_timeout_seconds": 5,
+    "external_ip_cache_ttl_seconds": 300,
+    "routing": {
+        "force_tenant": "",
+        "default_tenant": "bases-e-lojas",
+        "default_bucket": "sharex-data-bases-e-lojas",
+        "tenant_buckets": {
+            "clickip": "sharex-data-clickip",
+            "fiber": "sharex-data-fiber",
+            "intlink": "sharex-data-intlink",
+            "bases-e-lojas": "sharex-data-bases-e-lojas",
+        },
+        "external_ip_map": {},
+    },
+    "minio": {
+        "endpoint_url": "https://minio.homelab.local",
+        "access_key": "",
+        "secret_key": "",
+        "region_name": "us-east-1",
+        "verify_tls": False,
+    },
+}
+
+
+def deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
+    merged = dict(base)
+    for key, value in override.items():
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+            merged[key] = deep_merge(merged[key], value)
+        else:
+            merged[key] = value
+    return merged
+
+
+def expand_path(raw_value: str) -> Path:
+    value = re.sub(
+        r"%([^%]+)%",
+        lambda match: os.environ.get(match.group(1), match.group(0)),
+        raw_value,
+    )
+    value = os.path.expandvars(os.path.expanduser(value))
+    return Path(value)
+
+
+def sanitize_segment(value: str, *, lowercase: bool = False) -> str:
+    cleaned = re.sub(r"[^A-Za-z0-9._-]+", "-", value.strip())
+    cleaned = cleaned.strip("-._")
+    if not cleaned:
+        cleaned = "unknown"
+    return cleaned.lower() if lowercase else cleaned
+
+
+def iso_now() -> str:
+    return datetime.now().astimezone().isoformat()
+
+
+def load_config(config_path: Path) -> dict[str, Any]:
+    user_config: dict[str, Any] = {}
+    if config_path.exists():
+        user_config = json.loads(config_path.read_text(encoding="utf-8"))
+
+    config = deep_merge(DEFAULT_CONFIG, user_config)
+
+    config["paths"]["spool_dir"] = expand_path(config["paths"]["spool_dir"])
+    config["paths"]["tmp_dir"] = expand_path(config["paths"]["tmp_dir"])
+    config["paths"]["db_path"] = expand_path(config["paths"]["db_path"])
+    config["paths"]["log_path"] = expand_path(config["paths"]["log_path"])
+    config["watermark"]["logo_path"] = expand_path(config["watermark"]["logo_path"])
+
+    validate_config(config, config_path)
+    return config
+
+
+def validate_config(config: dict[str, Any], config_path: Path) -> None:
+    minio = config["minio"]
+    routing = config["routing"]
+
+    required_minio_fields = ["endpoint_url", "access_key", "secret_key"]
+    missing = [field for field in required_minio_fields if not str(minio.get(field, "")).strip()]
+    if missing:
+        raise ValueError(
+            "Config invalida em "
+            f"{config_path}: faltam campos de MinIO: {', '.join(missing)}. "
+            "Copie agent_config.example.json para agent_config.json e preencha os valores."
+        )
+
+    default_tenant = routing["default_tenant"]
+    tenant_buckets = routing["tenant_buckets"]
+    if default_tenant not in tenant_buckets:
+        raise ValueError(
+            f"Config invalida em {config_path}: o tenant padrao '{default_tenant}' nao tem bucket definido."
+        )
+
+
+def setup_logging(log_path: Path, level_name: str) -> logging.Logger:
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    logger = logging.getLogger("screenshot-audit-agent")
+    logger.setLevel(getattr(logging, level_name.upper(), logging.INFO))
+    logger.handlers.clear()
+
+    formatter = logging.Formatter(
+        fmt="%(asctime)s | %(levelname)s | %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
+
+    file_handler = RotatingFileHandler(log_path, maxBytes=2 * 1024 * 1024, backupCount=5, encoding="utf-8")
+    file_handler.setFormatter(formatter)
+    logger.addHandler(file_handler)
+
+    stream_handler = logging.StreamHandler(sys.stdout)
+    stream_handler.setFormatter(formatter)
+    logger.addHandler(stream_handler)
+
+    return logger
+
+
+def ensure_directories(config: dict[str, Any]) -> None:
+    config["paths"]["spool_dir"].mkdir(parents=True, exist_ok=True)
+    config["paths"]["tmp_dir"].mkdir(parents=True, exist_ok=True)
+    config["paths"]["db_path"].parent.mkdir(parents=True, exist_ok=True)
+    config["paths"]["log_path"].parent.mkdir(parents=True, exist_ok=True)
+
+
+def get_internal_ip() -> str:
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+            sock.connect(("8.8.8.8", 80))
+            return sock.getsockname()[0]
+    except OSError:
+        return "N/A"
+
+
+class ExternalIPResolver:
+    def __init__(self, services: list[str], timeout_seconds: int, cache_ttl_seconds: int) -> None:
+        self.services = services
+        self.timeout_seconds = timeout_seconds
+        self.cache_ttl_seconds = cache_ttl_seconds
+        self._cached_value = ""
+        self._cached_until = 0.0
+
+    def get_external_ip(self) -> str:
+        now = time.time()
+        if self._cached_value and now < self._cached_until:
+            return self._cached_value
+
+        for service in self.services:
+            try:
+                request = Request(service, headers={"User-Agent": "ScreenshotAuditAgent/0.1"})
+                with urlopen(request, timeout=self.timeout_seconds) as response:
+                    value = response.read().decode("utf-8", errors="ignore").strip()
+                    if value:
+                        self._cached_value = value
+                        self._cached_until = now + self.cache_ttl_seconds
+                        return value
+            except (OSError, URLError):
+                continue
+
+        return self._cached_value or "N/A"
+
+
+class QueueStore:
+    def __init__(self, db_path: Path) -> None:
+        self.db_path = db_path
+        self.connection = sqlite3.connect(self.db_path)
+        self.connection.row_factory = sqlite3.Row
+        self.connection.execute("PRAGMA journal_mode=WAL")
+        self.connection.execute("PRAGMA synchronous=NORMAL")
+        self._initialize()
+
+    def _initialize(self) -> None:
+        self.connection.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS queue_items (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                event_id TEXT NOT NULL UNIQUE,
+                source_path TEXT NOT NULL,
+                source_size INTEGER NOT NULL,
+                source_mtime_ns INTEGER NOT NULL,
+                status TEXT NOT NULL,
+                attempts INTEGER NOT NULL DEFAULT 0,
+                next_attempt_at TEXT NOT NULL,
+                tenant TEXT,
+                bucket_name TEXT,
+                object_key TEXT,
+                sha256 TEXT,
+                captured_at TEXT NOT NULL,
+                hostname TEXT NOT NULL,
+                username TEXT NOT NULL,
+                local_ip TEXT,
+                external_ip TEXT,
+                last_error TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                processed_at TEXT,
+                UNIQUE(source_path, source_size, source_mtime_ns)
+            );
+            """
+        )
+        self.connection.commit()
+
+    def reset_inflight_items(self) -> int:
+        now = iso_now()
+        cursor = self.connection.execute(
+            """
+            UPDATE queue_items
+               SET status = 'failed',
+                   last_error = 'Agent reiniciado durante upload',
+                   next_attempt_at = ?,
+                   updated_at = ?
+             WHERE status = 'uploading'
+            """,
+            (now, now),
+        )
+        self.connection.commit()
+        return cursor.rowcount
+
+    def enqueue_file(
+        self,
+        *,
+        source_path: Path,
+        source_size: int,
+        source_mtime_ns: int,
+        captured_at: str,
+        hostname: str,
+        username: str,
+        local_ip: str,
+        external_ip: str,
+    ) -> bool:
+        now = iso_now()
+        try:
+            self.connection.execute(
+                """
+                INSERT INTO queue_items (
+                    event_id,
+                    source_path,
+                    source_size,
+                    source_mtime_ns,
+                    status,
+                    attempts,
+                    next_attempt_at,
+                    captured_at,
+                    hostname,
+                    username,
+                    local_ip,
+                    external_ip,
+                    created_at,
+                    updated_at
+                ) VALUES (?, ?, ?, ?, 'pending', 0, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    f"evt_{uuid.uuid4().hex}",
+                    str(source_path),
+                    source_size,
+                    source_mtime_ns,
+                    now,
+                    captured_at,
+                    hostname,
+                    username,
+                    local_ip,
+                    external_ip,
+                    now,
+                    now,
+                ),
+            )
+            self.connection.commit()
+            return True
+        except sqlite3.IntegrityError:
+            return False
+
+    def fetch_due_items(self, limit: int = 50) -> list[sqlite3.Row]:
+        cursor = self.connection.execute(
+            """
+            SELECT *
+              FROM queue_items
+             WHERE status IN ('pending', 'failed')
+               AND next_attempt_at <= ?
+             ORDER BY created_at ASC
+             LIMIT ?
+            """,
+            (iso_now(), limit),
+        )
+        return cursor.fetchall()
+
+    def mark_uploading(self, event_id: str) -> None:
+        self.connection.execute(
+            """
+            UPDATE queue_items
+               SET status = 'uploading',
+                   updated_at = ?,
+                   last_error = NULL
+             WHERE event_id = ?
+            """,
+            (iso_now(), event_id),
+        )
+        self.connection.commit()
+
+    def update_routing(self, event_id: str, *, tenant: str, bucket_name: str, object_key: str, external_ip: str) -> None:
+        self.connection.execute(
+            """
+            UPDATE queue_items
+               SET tenant = ?,
+                   bucket_name = ?,
+                   object_key = ?,
+                   external_ip = ?,
+                   updated_at = ?
+             WHERE event_id = ?
+            """,
+            (tenant, bucket_name, object_key, external_ip, iso_now(), event_id),
+        )
+        self.connection.commit()
+
+    def mark_completed(self, event_id: str, sha256_hash: str) -> None:
+        self.connection.execute(
+            """
+            UPDATE queue_items
+               SET status = 'done',
+                   sha256 = ?,
+                   processed_at = ?,
+                   updated_at = ?,
+                   last_error = NULL
+             WHERE event_id = ?
+            """,
+            (sha256_hash, iso_now(), iso_now(), event_id),
+        )
+        self.connection.commit()
+
+    def mark_failed(
+        self,
+        event_id: str,
+        *,
+        last_error: str,
+        attempts: int,
+        retry_backoff_seconds: int,
+        retry_backoff_max_seconds: int,
+        max_retry_attempts: int,
+    ) -> None:
+        new_attempts = attempts + 1
+        delay_seconds = min(retry_backoff_seconds * max(1, 2 ** max(0, new_attempts - 1)), retry_backoff_max_seconds)
+        next_attempt = datetime.fromtimestamp(time.time() + delay_seconds).astimezone().isoformat()
+
+        next_status = "failed"
+        if max_retry_attempts > 0 and new_attempts >= max_retry_attempts:
+            next_status = "dead"
+            next_attempt = "9999-12-31T23:59:59+00:00"
+
+        self.connection.execute(
+            """
+            UPDATE queue_items
+               SET status = ?,
+                   attempts = ?,
+                   next_attempt_at = ?,
+                   last_error = ?,
+                   updated_at = ?
+             WHERE event_id = ?
+            """,
+            (next_status, new_attempts, next_attempt, last_error[:2000], iso_now(), event_id),
+        )
+        self.connection.commit()
+
+    def count_by_status(self) -> dict[str, int]:
+        cursor = self.connection.execute(
+            """
+            SELECT status, COUNT(*) AS total
+              FROM queue_items
+             GROUP BY status
+            """
+        )
+        return {row["status"]: row["total"] for row in cursor.fetchall()}
+
+    def close(self) -> None:
+        self.connection.close()
+
+
+def get_font(size: int):
+    for font_path in WINDOWS_FONT_CANDIDATES + LINUX_FONT_CANDIDATES:
+        path = Path(font_path)
+        if not path.exists():
+            continue
+        try:
+            return ImageFont.truetype(str(path), size)
+        except OSError:
+            continue
+    return ImageFont.load_default()
+
+
+def build_watermark_text(*, username: str, hostname: str, internal_ip: str, external_ip: str, captured_at: str) -> str:
+    captured_display = datetime.fromisoformat(captured_at).strftime("%d/%m/%Y %H:%M:%S")
+    return (
+        f"USUARIO: {username} | "
+        f"HOST: {hostname} | "
+        f"IP_INTERNO: {internal_ip} | "
+        f"IP_EXTERNO: {external_ip} | "
+        f"DATA: {captured_display}"
+    )
+
+
+def add_watermark(
+    input_path: Path,
+    output_path: Path,
+    *,
+    logo_path: Path,
+    username: str,
+    hostname: str,
+    internal_ip: str,
+    external_ip: str,
+    captured_at: str,
+) -> None:
+    with Image.open(input_path) as input_image:
+        image = input_image.convert("RGBA")
+        overlay = Image.new("RGBA", image.size, (255, 255, 255, 0))
+        draw = ImageDraw.Draw(overlay)
+
+        text = build_watermark_text(
+            username=username,
+            hostname=hostname,
+            internal_ip=internal_ip,
+            external_ip=external_ip,
+            captured_at=captured_at,
+        )
+        font_size = max(16, image.width // 65)
+        font = get_font(font_size)
+
+        text_bbox = draw.textbbox((0, 0), text, font=font)
+        text_width = text_bbox[2] - text_bbox[0]
+        text_height = text_bbox[3] - text_bbox[1]
+
+        outer_padding = 24
+        inner_padding = 14
+        gap_between_logo_and_text = 14
+        logo_max_height = max(30, text_height + 8)
+
+        logo = None
+        logo_width = 0
+        logo_height = 0
+        if logo_path.exists():
+            with Image.open(logo_path) as raw_logo:
+                logo = raw_logo.convert("RGBA")
+            scale = logo_max_height / max(1, logo.height)
+            logo_width = max(1, int(logo.width * scale))
+            logo_height = max(1, int(logo.height * scale))
+            logo = logo.resize((logo_width, logo_height), Image.LANCZOS)
+
+        content_width = text_width + (logo_width + gap_between_logo_and_text if logo else 0)
+        content_height = max(text_height, logo_height)
+
+        box_x1 = image.width - content_width - (inner_padding * 2) - outer_padding
+        box_y1 = image.height - content_height - (inner_padding * 2) - outer_padding
+        box_x2 = image.width - outer_padding
+        box_y2 = image.height - outer_padding
+
+        draw.rounded_rectangle(
+            (box_x1, box_y1, box_x2, box_y2),
+            radius=12,
+            fill=(0, 0, 0, 155),
+        )
+
+        current_x = box_x1 + inner_padding
+        if logo:
+            logo_y = box_y1 + ((box_y2 - box_y1 - logo_height) // 2)
+            overlay.alpha_composite(logo, (current_x, logo_y))
+            current_x += logo_width + gap_between_logo_and_text
+
+        text_y = box_y1 + ((box_y2 - box_y1 - text_height) // 2) - 1
+        draw.text((current_x, text_y), text, font=font, fill=(255, 255, 255, 225))
+
+        result = Image.alpha_composite(image, overlay).convert("RGB")
+        result.save(output_path, format="JPEG", quality=95)
+
+
+def is_file_ready(path: Path) -> bool:
+    try:
+        if not path.is_file():
+            return False
+
+        first_stat = path.stat()
+        if first_stat.st_size <= 0:
+            return False
+
+        time.sleep(0.2)
+        second_stat = path.stat()
+        if first_stat.st_size != second_stat.st_size or first_stat.st_mtime_ns != second_stat.st_mtime_ns:
+            return False
+
+        with open(path, "rb") as handle:
+            handle.read(1)
+        return True
+    except OSError:
+        return False
+
+
+def collect_spool_files(spool_dir: Path) -> list[Path]:
+    if not spool_dir.exists():
+        return []
+
+    candidates = []
+    for item in spool_dir.iterdir():
+        if item.is_file() and item.suffix.lower() in VALID_EXTENSIONS and is_file_ready(item):
+            candidates.append(item)
+    return sorted(candidates)
+
+
+def compute_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with open(path, "rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def build_object_key(*, tenant: str, captured_at: str, hostname: str, event_id: str) -> str:
+    captured_dt = datetime.fromisoformat(captured_at)
+    return "/".join(
+        [
+            sanitize_segment(tenant, lowercase=True),
+            captured_dt.strftime("%Y"),
+            captured_dt.strftime("%m"),
+            captured_dt.strftime("%d"),
+            sanitize_segment(hostname),
+            f"{sanitize_segment(event_id)}.jpg",
+        ]
+    )
+
+
+def resolve_tenant_and_bucket(config: dict[str, Any], external_ip: str) -> tuple[str, str]:
+    routing = config["routing"]
+    forced_tenant = str(routing.get("force_tenant", "")).strip()
+
+    if forced_tenant:
+        tenant = forced_tenant
+    else:
+        tenant = routing["external_ip_map"].get(external_ip, routing["default_tenant"])
+
+    bucket_name = routing["tenant_buckets"].get(tenant, routing["default_bucket"])
+    return tenant, bucket_name
+
+
+def create_s3_client(config: dict[str, Any]):
+    minio = config["minio"]
+    return boto3.client(
+        "s3",
+        endpoint_url=minio["endpoint_url"],
+        aws_access_key_id=minio["access_key"],
+        aws_secret_access_key=minio["secret_key"],
+        region_name=minio["region_name"],
+        verify=minio["verify_tls"],
+        config=BotoConfig(signature_version="s3v4", s3={"addressing_style": "path"}),
+    )
+
+
+def upload_file(s3_client, *, local_path: Path, bucket_name: str, object_key: str) -> None:
+    s3_client.upload_file(
+        str(local_path),
+        bucket_name,
+        object_key,
+        ExtraArgs={"ContentType": "image/jpeg"},
+    )
+
+
+def enqueue_new_files(
+    *,
+    config: dict[str, Any],
+    queue_store: QueueStore,
+    external_ip_resolver: ExternalIPResolver,
+    logger: logging.Logger,
+) -> int:
+    hostname = socket.gethostname()
+    username = os.environ.get("USERNAME") or getpass.getuser()
+    local_ip = get_internal_ip()
+    external_ip = external_ip_resolver.get_external_ip()
+    queued_count = 0
+
+    for path in collect_spool_files(config["paths"]["spool_dir"]):
+        stat = path.stat()
+        was_inserted = queue_store.enqueue_file(
+            source_path=path,
+            source_size=stat.st_size,
+            source_mtime_ns=stat.st_mtime_ns,
+            captured_at=datetime.fromtimestamp(stat.st_mtime).astimezone().isoformat(),
+            hostname=hostname,
+            username=username,
+            local_ip=local_ip,
+            external_ip=external_ip,
+        )
+        if was_inserted:
+            queued_count += 1
+            logger.info("Fila local: novo screenshot enfileirado: %s", path.name)
+
+    return queued_count
+
+
+def process_due_items(
+    *,
+    config: dict[str, Any],
+    queue_store: QueueStore,
+    external_ip_resolver: ExternalIPResolver,
+    s3_client,
+    logger: logging.Logger,
+) -> int:
+    processed_count = 0
+    items = queue_store.fetch_due_items()
+
+    for item in items:
+        source_path = Path(item["source_path"])
+        event_id = item["event_id"]
+        tmp_file = config["paths"]["tmp_dir"] / f"{event_id}.jpg"
+
+        try:
+            if not source_path.exists():
+                raise FileNotFoundError(f"Arquivo do spool nao encontrado: {source_path}")
+
+            queue_store.mark_uploading(event_id)
+
+            external_ip = item["external_ip"] or external_ip_resolver.get_external_ip()
+            tenant, bucket_name = resolve_tenant_and_bucket(config, external_ip)
+            object_key = build_object_key(
+                tenant=tenant,
+                captured_at=item["captured_at"],
+                hostname=item["hostname"],
+                event_id=event_id,
+            )
+            queue_store.update_routing(
+                event_id,
+                tenant=tenant,
+                bucket_name=bucket_name,
+                object_key=object_key,
+                external_ip=external_ip,
+            )
+
+            if config["watermark"]["enabled"]:
+                add_watermark(
+                    source_path,
+                    tmp_file,
+                    logo_path=config["watermark"]["logo_path"],
+                    username=item["username"],
+                    hostname=item["hostname"],
+                    internal_ip=item["local_ip"] or "N/A",
+                    external_ip=external_ip,
+                    captured_at=item["captured_at"],
+                )
+            else:
+                with Image.open(source_path) as raw_image:
+                    raw_image.convert("RGB").save(tmp_file, format="JPEG", quality=95)
+
+            sha256_hash = compute_sha256(source_path)
+            upload_file(
+                s3_client,
+                local_path=tmp_file,
+                bucket_name=bucket_name,
+                object_key=object_key,
+            )
+
+            queue_store.mark_completed(event_id, sha256_hash)
+            processed_count += 1
+
+            if config["delete_local_after_success"]:
+                try:
+                    source_path.unlink(missing_ok=True)
+                except OSError as exc:
+                    logger.warning("Nao foi possivel remover o arquivo do spool %s: %s", source_path, exc)
+
+            tmp_file.unlink(missing_ok=True)
+            logger.info(
+                "Upload concluido: event_id=%s bucket=%s object_key=%s",
+                event_id,
+                bucket_name,
+                object_key,
+            )
+        except Exception as exc:  # noqa: BLE001
+            tmp_file.unlink(missing_ok=True)
+            logger.exception("Falha ao processar event_id=%s", event_id)
+            queue_store.mark_failed(
+                event_id,
+                last_error=str(exc),
+                attempts=item["attempts"],
+                retry_backoff_seconds=config["retry_backoff_seconds"],
+                retry_backoff_max_seconds=config["retry_backoff_max_seconds"],
+                max_retry_attempts=config["max_retry_attempts"],
+            )
+
+    return processed_count
+
+
+def build_argument_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="Screenshot Audit Agent MVP")
+    parser.add_argument(
+        "--config",
+        type=Path,
+        default=DEFAULT_CONFIG_PATH,
+        help="Caminho do agent_config.json",
+    )
+    parser.add_argument(
+        "--once",
+        action="store_true",
+        help="Executa uma passada unica no spool e sai.",
+    )
+    return parser
+
+
+def main() -> int:
+    args = build_argument_parser().parse_args()
+
+    try:
+        config = load_config(args.config)
+    except Exception as exc:  # noqa: BLE001
+        print(f"[ERRO] Nao foi possivel carregar a configuracao: {exc}", file=sys.stderr)
+        return 1
+
+    ensure_directories(config)
+    logger = setup_logging(config["paths"]["log_path"], config["log_level"])
+    logger.info("Iniciando Screenshot Audit Agent")
+    logger.info("Spool: %s", config["paths"]["spool_dir"])
+    logger.info("Tmp: %s", config["paths"]["tmp_dir"])
+    logger.info("Queue DB: %s", config["paths"]["db_path"])
+
+    queue_store = QueueStore(config["paths"]["db_path"])
+    recovered_items = queue_store.reset_inflight_items()
+    if recovered_items:
+        logger.warning("%s item(ns) de upload foram recolocados para retry apos reinicio.", recovered_items)
+
+    external_ip_resolver = ExternalIPResolver(
+        services=list(config["external_ip_services"]),
+        timeout_seconds=int(config["external_ip_timeout_seconds"]),
+        cache_ttl_seconds=int(config["external_ip_cache_ttl_seconds"]),
+    )
+    s3_client = create_s3_client(config)
+
+    try:
+        while True:
+            queued_count = enqueue_new_files(
+                config=config,
+                queue_store=queue_store,
+                external_ip_resolver=external_ip_resolver,
+                logger=logger,
+            )
+            processed_count = process_due_items(
+                config=config,
+                queue_store=queue_store,
+                external_ip_resolver=external_ip_resolver,
+                s3_client=s3_client,
+                logger=logger,
+            )
+
+            if queued_count or processed_count:
+                logger.info("Resumo do ciclo: enfileirados=%s processados=%s status=%s", queued_count, processed_count, queue_store.count_by_status())
+
+            if args.once:
+                break
+
+            time.sleep(config["poll_interval_seconds"])
+    except KeyboardInterrupt:
+        logger.info("Encerrando agent por interrupcao manual.")
+    except (BotoCoreError, ClientError) as exc:
+        logger.exception("Erro de cliente S3/MinIO nao tratado: %s", exc)
+        return 1
+    finally:
+        queue_store.close()
+
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

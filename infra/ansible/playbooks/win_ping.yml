@@ -1,0 +1,12 @@
+---
+- name: Validate WinRM connectivity on pilot hosts
+  hosts: sharex_pilot
+  gather_facts: false
+
+  tasks:
+    - name: Ping Windows host through WinRM
+      ansible.windows.win_ping:
+
+    - name: Show host connectivity summary
+      ansible.builtin.debug:
+        msg: "WinRM OK em {{ inventory_hostname }} ({{ ansible_host }})"

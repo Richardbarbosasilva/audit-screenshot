@@ -1,0 +1,18 @@
+sharex_installer_local_path: "/var/www/ShareX-19.0.2-setup.exe"
+sharex_installer_remote_path: 'C:\Windows\Temp\ShareX-19.0.2-setup.exe'
+sharex_version: "19.0.2"
+
+agent_build_local_path: "/var/www/audit_screenshot/dist/ScreenshotAuditAgent.exe"
+agent_config_local_path: "/var/www/audit_screenshot/agent_config.json"
+agent_logo_local_path: "/var/www/audit_screenshot/logo.png"
+nssm_local_path: "/var/www/audit_screenshot/bin/nssm.exe"
+install_agent_service_local_path: "/var/www/audit_screenshot/install_agent_service.ps1"
+
+agent_install_root: 'C:\Program Files\ScreenshotAudit'
+agent_programdata_root: 'C:\ProgramData\ScreenshotAudit'
+agent_binary_remote_path: 'C:\Program Files\ScreenshotAudit\ScreenshotAuditAgent.exe'
+agent_config_remote_path: 'C:\Program Files\ScreenshotAudit\agent_config.json'
+agent_logo_remote_path: 'C:\ProgramData\ScreenshotAudit\assets\logo.png'
+agent_nssm_remote_path: 'C:\Program Files\ScreenshotAudit\nssm.exe'
+agent_install_script_remote_path: 'C:\Program Files\ScreenshotAudit\install_agent_service.ps1'
+agent_service_name: "ScreenshotAuditAgent"

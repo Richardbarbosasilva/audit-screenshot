@@ -1,0 +1,36 @@
+---
+- name: Healthcheck screenshot audit agent on the canary host
+  hosts: HOST-TEST2
+  gather_facts: false
+
+  tasks:
+    - name: Query service info
+      ansible.windows.win_service_info:
+        name: "{{ agent_service_name }}"
+      register: agent_service
+
+    - name: Check queue database
+      ansible.windows.win_stat:
+        path: "{{ agent_programdata_root }}\\data\\queue.db"
+      register: queue_db
+
+    - name: Tail agent log
+      ansible.windows.win_powershell:
+        script: |
+          $log = "{{ agent_programdata_root }}\logs\agent.log"
+          if (Test-Path $log) {
+            Get-Content $log -Tail 30
+          } else {
+            Write-Output "agent.log not found"
+          }
+      register: agent_log
+
+    - name: Show health summary
+      ansible.builtin.debug:
+        msg:
+          - "Host: {{ inventory_hostname }}"
+          - "Service exists: {{ agent_service.exists | default(false) }}"
+          - "Service state: {{ (agent_service.services | default([]) | first).state | default('missing') }}"
+          - "Queue DB exists: {{ queue_db.stat.exists }}"
+          - "Recent log lines:"
+          - "{{ agent_log.output | default([]) }}"

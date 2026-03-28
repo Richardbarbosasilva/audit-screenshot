@@ -1,0 +1,62 @@
+---
+- name: Install or update screenshot audit agent on the canary host
+  hosts: HOST-TEST2
+  gather_facts: false
+
+  tasks:
+    - name: Ensure agent directories exist
+      ansible.windows.win_file:
+        path: "{{ item }}"
+        state: directory
+      loop:
+        - "{{ agent_install_root }}"
+        - "{{ agent_programdata_root }}"
+        - "{{ agent_programdata_root }}\\assets"
+        - "{{ agent_programdata_root }}\\logs"
+        - "{{ agent_programdata_root }}\\spool"
+        - "{{ agent_programdata_root }}\\tmp"
+        - "{{ agent_programdata_root }}\\data"
+
+    - name: Copy agent binary
+      ansible.windows.win_copy:
+        src: "{{ agent_build_local_path }}"
+        dest: "{{ agent_binary_remote_path }}"
+
+    - name: Copy agent config
+      ansible.windows.win_copy:
+        src: "{{ agent_config_local_path }}"
+        dest: "{{ agent_config_remote_path }}"
+
+    - name: Copy agent logo
+      ansible.windows.win_copy:
+        src: "{{ agent_logo_local_path }}"
+        dest: "{{ agent_logo_remote_path }}"
+
+    - name: Copy NSSM
+      ansible.windows.win_copy:
+        src: "{{ nssm_local_path }}"
+        dest: "{{ agent_nssm_remote_path }}"
+
+    - name: Copy service installer script
+      ansible.windows.win_copy:
+        src: "{{ install_agent_service_local_path }}"
+        dest: "{{ agent_install_script_remote_path }}"
+
+    - name: Install or update ScreenshotAuditAgent service
+      ansible.windows.win_powershell:
+        script: |
+          powershell.exe -ExecutionPolicy Bypass -File "{{ agent_install_script_remote_path }}" `
+            -ServiceName "{{ agent_service_name }}" `
+            -BinaryPath "{{ agent_binary_remote_path }}" `
+            -ConfigPath "{{ agent_config_remote_path }}" `
+            -NssmPath "{{ agent_nssm_remote_path }}" `
+            -ProgramDataRoot "{{ agent_programdata_root }}"
+      register: agent_install
+
+    - name: Show agent installation result
+      ansible.builtin.debug:
+        msg:
+          - "Host: {{ inventory_hostname }}"
+          - "Service: {{ agent_service_name }}"
+          - "Changed/Executed: {{ agent_install.changed }}"
+          - "{{ agent_install.output | default([]) }}"

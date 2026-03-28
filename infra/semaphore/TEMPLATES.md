@@ -35,19 +35,19 @@ Credenciais:
 
 - inventory: `sharex-pilot`
 - playbook: `infra/ansible/playbooks/install_sharex.yml`
-- limite recomendado no piloto: `HOST-TEST2`
+- canario pronto: `infra/ansible/playbooks/install_sharex_canary.yml`
 
 ### 3. install_agent
 
 - inventory: `sharex-pilot`
 - playbook: `infra/ansible/playbooks/install_agent.yml`
-- limite recomendado no piloto: `HOST-TEST2`
+- canario pronto: `infra/ansible/playbooks/install_agent_canary.yml`
 
 ### 4. healthcheck_agent
 
 - inventory: `sharex-pilot`
 - playbook: `infra/ansible/playbooks/healthcheck_agent.yml`
-- limite recomendado no piloto: `HOST-TEST2`
+- canario pronto: `infra/ansible/playbooks/healthcheck_agent_canary.yml`
 
 ## Como isso aparece no UI
 

@@ -29,21 +29,25 @@ Credenciais:
 
 - inventory: `sharex-pilot`
 - playbook: `infra/ansible/playbooks/win_ping.yml`
+- comportamento: resumo por host sem derrubar a tarefa inteira por um unico host inacessivel
 
 ### 2. install_sharex
 
 - inventory: `sharex-pilot`
 - playbook: `infra/ansible/playbooks/install_sharex.yml`
+- limite recomendado no piloto: `HOST-TEST2`
 
 ### 3. install_agent
 
 - inventory: `sharex-pilot`
 - playbook: `infra/ansible/playbooks/install_agent.yml`
+- limite recomendado no piloto: `HOST-TEST2`
 
 ### 4. healthcheck_agent
 
 - inventory: `sharex-pilot`
 - playbook: `infra/ansible/playbooks/healthcheck_agent.yml`
+- limite recomendado no piloto: `HOST-TEST2`
 
 ## Como isso aparece no UI
 
@@ -55,6 +59,11 @@ Cada execução mostra:
 - output por tarefa
 - falha por host
 - resumo final do Ansible
+
+## Limites úteis no piloto
+
+- `HOST-TEST2`: seguir com o canário funcional enquanto fechamos o auth do `HOSTTESTE`
+- `HOSTTESTE`: isolar o host que ainda precisa do caminho Kerberos no executor Linux
 
 ## Estratégia de rollout
 

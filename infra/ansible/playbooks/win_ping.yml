@@ -6,7 +6,19 @@
   tasks:
     - name: Ping Windows host through WinRM
       ansible.windows.win_ping:
+      register: winrm_ping_result
+      ignore_unreachable: true
+      ignore_errors: true
 
     - name: Show host connectivity summary
       ansible.builtin.debug:
-        msg: "WinRM OK em {{ inventory_hostname }} ({{ ansible_host }})"
+        msg:
+          - "Host: {{ inventory_hostname }}"
+          - "Target: {{ ansible_host }}"
+          - "Status: {{ 'OK' if winrm_ping_result.ping | default('') == 'pong' else 'FALHOU' }}"
+          - >-
+            Detalhe: {{
+              'WinRM respondeu normalmente'
+              if winrm_ping_result.ping | default('') == 'pong'
+              else (winrm_ping_result.msg | default('falha sem mensagem detalhada'))
+            }}

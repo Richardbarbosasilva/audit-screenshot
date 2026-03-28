@@ -34,7 +34,7 @@ def generate_totp(secret: str, step: int = 30, digits: int = 6) -> str:
 
 
 class SemaphoreClient:
-    def __init__(self, base_url: str, host_header: str, username: str, password: str, totp_secret: str):
+    def __init__(self, base_url: str, host_header: str, username: str, password: str, totp_secret: str | None = None):
         self.base_url = base_url.rstrip("/")
         self.session = requests.Session()
         self.default_headers = {"Host": host_header, "Content-Type": "application/json"}
@@ -63,12 +63,13 @@ class SemaphoreClient:
             ok=(200, 204),
             json={"auth": self.username, "password": self.password},
         )
-        self._request(
-            "POST",
-            "/auth/verify",
-            ok=(200, 204),
-            json={"passcode": generate_totp(self.totp_secret)},
-        )
+        if self.totp_secret:
+            self._request(
+                "POST",
+                "/auth/verify",
+                ok=(200, 204),
+                json={"passcode": generate_totp(self.totp_secret)},
+            )
 
     def get(self, path: str, **kwargs: Any) -> Any:
         return self._request("GET", path, **kwargs).json()
@@ -225,6 +226,8 @@ def ensure_template(
     view_id: int,
     playbook: str,
     branch: str,
+    description: str,
+    limit: str,
 ) -> dict[str, Any]:
     templates = client.get(f"/project/{project_id}/templates?sort=name&order=asc")
     template = find_by_name(templates, "name", name)
@@ -237,9 +240,9 @@ def ensure_template(
         "name": name,
         "playbook": playbook,
         "arguments": "[]",
-        "description": "Validate WinRM connectivity on pilot hosts",
+        "description": description,
         "allow_override_args_in_task": False,
-        "limit": "",
+        "limit": limit,
         "suppress_success_alerts": False,
         "app": "ansible",
         "git_branch": branch,
@@ -272,7 +275,7 @@ def main() -> int:
         host_header=env("SEMAPHORE_HOST_HEADER", "semaphore.homelab.local"),
         username=env("SEMAPHORE_USERNAME", "admin"),
         password=env("SEMAPHORE_PASSWORD", required=True),
-        totp_secret=env("SEMAPHORE_TOTP_SECRET", required=True),
+        totp_secret=env("SEMAPHORE_TOTP_SECRET") or None,
     )
     client.login()
 
@@ -324,6 +327,8 @@ def main() -> int:
         view["id"],
         playbook_path,
         env("GIT_REPO_BRANCH", "main"),
+        env("SEMAPHORE_TEMPLATE_DESCRIPTION", "Validate WinRM connectivity on pilot hosts"),
+        env("SEMAPHORE_TEMPLATE_LIMIT", ""),
     )
 
     result = {

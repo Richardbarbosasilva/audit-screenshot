@@ -43,7 +43,19 @@ Credenciais:
 - playbook: `infra/ansible/playbooks/install_agent.yml`
 - canario pronto: `infra/ansible/playbooks/install_agent_canary.yml`
 
-### 4. healthcheck_agent
+### 4. configure_sharex_spool
+
+- inventory: `sharex-pilot`
+- playbook: `infra/ansible/playbooks/configure_sharex_spool.yml`
+- canario pronto: `infra/ansible/playbooks/configure_sharex_spool_canary.yml`
+
+### 5. uninstall_lightshot
+
+- inventory: `sharex-pilot`
+- playbook: `infra/ansible/playbooks/uninstall_lightshot.yml`
+- canario pronto: `infra/ansible/playbooks/uninstall_lightshot_canary.yml`
+
+### 6. healthcheck_agent
 
 - inventory: `sharex-pilot`
 - playbook: `infra/ansible/playbooks/healthcheck_agent.yml`

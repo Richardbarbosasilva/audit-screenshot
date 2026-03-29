@@ -1,0 +1,50 @@
+---
+- name: Configure ShareX to use the managed spool path on the canary host
+  hosts: HOST-TEST2
+  gather_facts: false
+  vars_files:
+    - ../group_vars/sharex_pilot.yml
+
+  tasks:
+    - name: Ensure managed spool directories exist
+      ansible.windows.win_file:
+        path: "{{ item }}"
+        state: directory
+      loop:
+        - "{{ sharex_personal_path }}"
+        - "{{ sharex_personal_path }}\\Screenshots"
+        - "{{ agent_programdata_root }}"
+        - "{{ agent_programdata_root }}\\logs"
+
+    - name: Apply ShareX machine-wide registry policy
+      ansible.windows.win_regedit:
+        path: HKLM:\SOFTWARE\ShareX
+        name: "{{ item.name }}"
+        data: "{{ item.data }}"
+        type: "{{ item.type }}"
+        state: present
+      loop:
+        - { name: "PersonalPath", data: "{{ sharex_personal_path }}", type: "string" }
+        - { name: "DisableUpload", data: 1, type: "dword" }
+        - { name: "DisableUpdateCheck", data: 1, type: "dword" }
+
+    - name: Stop ShareX to reload configuration on next launch
+      ansible.windows.win_powershell:
+        script: |
+          $process = Get-Process -Name ShareX -ErrorAction SilentlyContinue
+          if ($process) {
+            $process | Stop-Process -Force
+            Write-Output "ShareX process stopped"
+          } else {
+            Write-Output "ShareX process not running"
+          }
+      register: sharex_process
+
+    - name: Show ShareX spool configuration summary
+      ansible.builtin.debug:
+        msg:
+          - "Host: {{ inventory_hostname }}"
+          - "Managed PersonalPath: {{ sharex_personal_path }}"
+          - "Upload disabled: True"
+          - "Update check disabled: True"
+          - "{{ sharex_process.output | default([]) }}"

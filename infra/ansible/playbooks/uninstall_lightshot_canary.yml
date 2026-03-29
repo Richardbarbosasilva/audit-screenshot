@@ -1,0 +1,71 @@
+---
+- name: Uninstall Lightshot from the canary host
+  hosts: HOST-TEST2
+  gather_facts: false
+
+  tasks:
+    - name: Remove Lightshot when present
+      ansible.windows.win_powershell:
+        script: |
+          $ErrorActionPreference = "Stop"
+
+          $registryPaths = @(
+            "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*",
+            "HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*",
+            "Registry::HKEY_USERS\*\Software\Microsoft\Windows\CurrentVersion\Uninstall\*"
+          )
+
+          $entries = foreach ($path in $registryPaths) {
+            Get-ItemProperty -Path $path -ErrorAction SilentlyContinue |
+              Where-Object { $_.DisplayName -like "Lightshot*" }
+          }
+
+          if (-not $entries) {
+            @{
+              changed = $false
+              found = $false
+              removed = @()
+            } | ConvertTo-Json -Compress
+            return
+          }
+
+          Get-Process -Name Lightshot -ErrorAction SilentlyContinue | Stop-Process -Force
+
+          $removed = @()
+          foreach ($entry in $entries) {
+            $command = $entry.QuietUninstallString
+            if (-not $command) {
+              $command = $entry.UninstallString
+            }
+
+            if (-not $command) {
+              throw "Nao foi encontrado comando de uninstall para $($entry.DisplayName)"
+            }
+
+            if ($command -match 'MsiExec(\.exe)?') {
+              if ($command -notmatch '/x') {
+                $command = $command -replace '/I', '/X'
+              }
+              if ($command -notmatch '/qn') {
+                $command = "$command /qn /norestart"
+              }
+            } elseif ($command -match 'unins.*\.exe') {
+              $command = "$command /VERYSILENT /SUPPRESSMSGBOXES /NORESTART"
+            }
+
+            Start-Process -FilePath "cmd.exe" -ArgumentList "/c $command" -Wait -NoNewWindow
+            $removed += $entry.DisplayName
+          }
+
+          @{
+            changed = $true
+            found = $true
+            removed = $removed
+          } | ConvertTo-Json -Compress
+      register: lightshot_uninstall
+
+    - name: Show Lightshot removal summary
+      ansible.builtin.debug:
+        msg:
+          - "Host: {{ inventory_hostname }}"
+          - "{{ lightshot_uninstall.output | default([]) }}"

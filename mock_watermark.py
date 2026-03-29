@@ -562,7 +562,7 @@ def collect_spool_files(spool_dir: Path) -> list[Path]:
         return []
 
     candidates = []
-    for item in spool_dir.iterdir():
+    for item in spool_dir.rglob("*"):
         if item.is_file() and item.suffix.lower() in VALID_EXTENSIONS and is_file_ready(item):
             candidates.append(item)
     return sorted(candidates)

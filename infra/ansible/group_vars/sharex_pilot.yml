@@ -1,6 +1,7 @@
 sharex_installer_local_path: "/var/www/ShareX-19.0.2-setup.exe"
 sharex_installer_remote_path: 'C:\Windows\Temp\ShareX-19.0.2-setup.exe'
 sharex_version: "19.0.2"
+sharex_personal_path: 'C:\ProgramData\ScreenshotAudit\spool'
 
 agent_build_local_path: "/var/www/audit_screenshot/dist/ScreenshotAuditAgent.exe"
 agent_config_local_path: "/var/www/audit_screenshot/agent_config.json"

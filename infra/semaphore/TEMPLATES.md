@@ -20,8 +20,12 @@ Variaveis comuns:
 
 Credenciais:
 
-- usuario WinRM
-- senha WinRM
+- `ansible_password`
+
+Observacao:
+
+- o metodo de conexao e o usuario de cada host devem vir do inventario
+- isso permite misturar `psrp/negotiate` e `winrm/kerberos` no piloto sem criar varios templates
 
 ## Templates iniciais
 
@@ -72,10 +76,10 @@ Cada execução mostra:
 - falha por host
 - resumo final do Ansible
 
-## Limites úteis no piloto
+## Limites uteis no piloto
 
-- `HOST-TEST2`: seguir com o canário funcional enquanto fechamos o auth do `HOSTTESTE`
-- `HOSTTESTE`: isolar o host que ainda precisa do caminho Kerberos no executor Linux
+- `HOST-TEST2`: canario ja funcional com `psrp/negotiate`
+- `HOSTTESTE`: validado com `winrm/kerberos` e `managed kinit`
 
 ## Estratégia de rollout
 

@@ -8,18 +8,20 @@ O container atual do Semaphore nao tem:
 - `pypsrp`
 - `pywinrm`
 - collections `ansible.windows` e `community.windows`
+- toolchain Kerberos para hosts de dominio
 
 Sem isso, o `win_ping` pelo UI nao vai funcionar ainda.
 
 ## Objetivo
 
-Gerar uma imagem do Semaphore com o ambiente Ansible necessario para operar Windows via WinRM/PSRP.
+Gerar uma imagem do Semaphore com o ambiente Ansible necessario para operar Windows via WinRM/PSRP e Kerberos.
 
 ## Arquivos prontos no projeto
 
 - `infra/ansible/requirements.txt`
 - `infra/ansible/collections/requirements.yml`
 - `infra/docker/Dockerfile.semaphore-ansible`
+- `infra/docker/krb5.conf`
 
 ## Build sugerido
 
@@ -48,7 +50,8 @@ Dentro do container novo, estes comandos devem funcionar:
 
 ```bash
 ansible --version
-python3 -c "import pypsrp, winrm"
+python3 -c "import pypsrp, winrm, kerberos"
+kinit --version
 ansible-galaxy collection list
 ```
 
@@ -56,7 +59,7 @@ ansible-galaxy collection list
 
 1. Criar projeto `screenshot-audit` no Semaphore
 2. Criar inventory `sharex-pilot`
-3. Criar environment com credenciais WinRM
+3. Criar environment com `ansible_password`
 4. Apontar o repositório local ou Git
 5. Rodar template `win_ping`
 6. Se passar, rodar `install_sharex`

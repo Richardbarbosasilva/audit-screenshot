@@ -83,22 +83,9 @@ class SemaphoreClient:
         return response.json() if response.text else None
 
 
-def load_inventory_hosts(path: Path) -> str:
-    lines: list[str] = []
-    in_group = False
-    for raw_line in path.read_text(encoding="utf-8").splitlines():
-        line = raw_line.rstrip()
-        if not line:
-            continue
-        if line.startswith("[sharex_pilot]"):
-            in_group = True
-            lines.append(line)
-            continue
-        if in_group and line.startswith("["):
-            break
-        if in_group:
-            lines.append(line)
-    return "\n".join(lines) + "\n"
+def load_inventory(path: Path) -> str:
+    inventory = path.read_text(encoding="utf-8").strip()
+    return inventory + "\n"
 
 
 def find_by_name(items: list[dict[str, Any]], field: str, value: str) -> dict[str, Any] | None:
@@ -302,18 +289,13 @@ def main() -> int:
         client,
         project_id,
         env("SEMAPHORE_INVENTORY_NAME", "sharex-pilot"),
-        load_inventory_hosts(inventory_path),
+        load_inventory(inventory_path),
     )
     environment = ensure_environment(
         client,
         project_id,
         env("SEMAPHORE_ENVIRONMENT_NAME", "sharex-pilot-winrm"),
         {
-            "ansible_connection": env("WINRM_CONNECTION", "psrp"),
-            "ansible_port": int(env("WINRM_PORT", "5985")),
-            "ansible_psrp_auth": env("WINRM_PSRP_AUTH", "negotiate"),
-            "ansible_psrp_cert_validation": env("WINRM_CERT_VALIDATION", "ignore"),
-            "ansible_user": env("WINRM_USERNAME", "Administrator", required=True),
             "ansible_password": env("WINRM_PASSWORD", required=True),
         },
     )

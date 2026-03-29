@@ -7,11 +7,19 @@ ENV PATH="${ANSIBLE_VENV}/bin:${PATH}"
 
 COPY infra/ansible/requirements.txt /tmp/requirements.txt
 COPY infra/ansible/collections/requirements.yml /tmp/collections-requirements.yml
+COPY infra/docker/krb5.conf /etc/krb5.conf
 
 RUN apk add --no-cache \
       bash \
       git \
       openssh-client \
+      krb5 \
+      krb5-conf \
+      krb5-libs \
+    && apk add --no-cache --virtual .build-deps \
+      build-base \
+      krb5-dev \
+      python3-dev \
     && pip install --no-cache-dir -r /tmp/requirements.txt \
     && ansible-galaxy collection install -r /tmp/collections-requirements.yml \
     && ln -sf ${ANSIBLE_VENV}/bin/ansible /usr/local/bin/ansible \
@@ -23,4 +31,5 @@ RUN apk add --no-cache \
     && ln -sf ${ANSIBLE_VENV}/bin/ansible-playbook /usr/local/bin/ansible-playbook \
     && ln -sf ${ANSIBLE_VENV}/bin/ansible-pull /usr/local/bin/ansible-pull \
     && ln -sf ${ANSIBLE_VENV}/bin/ansible-vault /usr/local/bin/ansible-vault \
+    && apk del .build-deps \
     && rm -rf /root/.cache /tmp/requirements.txt /tmp/collections-requirements.yml

@@ -6,6 +6,30 @@
   vars_files:
     - ../group_vars/sharex_pilot.yml
 
+  pre_tasks:
+    - name: Check WinRM connectivity before healthcheck
+      ansible.windows.win_ping:
+      register: winrm_ping_result
+      ignore_unreachable: true
+      ignore_errors: true
+
+    - name: Show connectivity skip summary
+      ansible.builtin.debug:
+        msg:
+          - "Host: {{ inventory_hostname }}"
+          - "Target: {{ ansible_host }}"
+          - "Status: SKIPPED"
+          - >-
+            Detalhe: {{
+              winrm_ping_result.msg
+              | default('host offline ou sem conectividade WinRM no momento')
+            }}
+      when: winrm_ping_result.ping | default('') != 'pong'
+
+    - name: Stop healthcheck on unreachable host
+      ansible.builtin.meta: end_host
+      when: winrm_ping_result.ping | default('') != 'pong'
+
   tasks:
     - name: Query service info
       ansible.windows.win_service_info:

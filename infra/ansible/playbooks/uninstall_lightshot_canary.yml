@@ -4,6 +4,30 @@
   gather_facts: false
   ignore_unreachable: true
 
+  pre_tasks:
+    - name: Check WinRM connectivity before canary Lightshot removal
+      ansible.windows.win_ping:
+      register: winrm_ping_result
+      ignore_unreachable: true
+      ignore_errors: true
+
+    - name: Show canary connectivity skip summary
+      ansible.builtin.debug:
+        msg:
+          - "Host: {{ inventory_hostname }}"
+          - "Target: {{ ansible_host }}"
+          - "Status: SKIPPED"
+          - >-
+            Detalhe: {{
+              winrm_ping_result.msg
+              | default('host offline ou sem conectividade WinRM no momento')
+            }}
+      when: winrm_ping_result.ping | default('') != 'pong'
+
+    - name: Stop canary Lightshot removal on unreachable host
+      ansible.builtin.meta: end_host
+      when: winrm_ping_result.ping | default('') != 'pong'
+
   tasks:
     - name: Remove Lightshot when present
       ansible.windows.win_powershell:

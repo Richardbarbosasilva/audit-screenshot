@@ -97,17 +97,21 @@
           }}
       no_log: true
 
-    - name: Create temporary rendered config path on the controller
-      ansible.builtin.tempfile:
-        state: file
-        suffix: ".json"
-      delegate_to: localhost
-      register: rendered_agent_config_local_file
+    - name: Define rendered agent config path on the controller
+      ansible.builtin.set_fact:
+        rendered_agent_config_local_path: "/tmp/semaphore-agent-configs/{{ inventory_hostname }}.json"
 
-    - name: Render per-host agent config on the controller
-      ansible.builtin.template:
-        src: "{{ agent_config_template_local_path }}"
-        dest: "{{ rendered_agent_config_local_file.path }}"
+    - name: Ensure local rendered config directory exists
+      ansible.builtin.file:
+        path: "{{ rendered_agent_config_local_path | dirname }}"
+        state: directory
+        mode: "0700"
+      delegate_to: localhost
+
+    - name: Write per-host agent config on the controller
+      ansible.builtin.copy:
+        content: "{{ agent_config_rendered | to_nice_json }}"
+        dest: "{{ rendered_agent_config_local_path }}"
         mode: "0600"
       delegate_to: localhost
       no_log: true
@@ -300,7 +304,7 @@
 
     - name: Copy rendered agent config
       ansible.windows.win_copy:
-        src: "{{ rendered_agent_config_local_file.path }}"
+        src: "{{ rendered_agent_config_local_path }}"
         dest: "{{ agent_config_remote_path }}"
       no_log: true
 
@@ -352,7 +356,7 @@
   post_tasks:
     - name: Remove temporary rendered config from the controller
       ansible.builtin.file:
-        path: "{{ rendered_agent_config_local_file.path }}"
+        path: "{{ rendered_agent_config_local_path }}"
         state: absent
       delegate_to: localhost
-      when: rendered_agent_config_local_file.path is defined
+      when: rendered_agent_config_local_path is defined

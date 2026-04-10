@@ -92,6 +92,7 @@ Entao o MSI pode entrar, mas como empacotamento, nao como plataforma de rollout.
 
 - OU `sharex` no AD apenas para escopo organizacional
 - WinRM validado nos 2 Windows 11 e no Windows Server
+- secret `leakguard_agent_api_bearer_token` cadastrado no Semaphore
 - Semaphore com templates separados:
   - `install_sharex`
   - `install_agent`
@@ -139,6 +140,26 @@ Para melhorar isso, os playbooks podem:
 - imprimir versao instalada
 - consultar status do servico
 - ler ultimas linhas do log
+
+## Secretos minimos para o rollout do agent
+
+No `Semaphore`, o template de `install_agent` deve receber pelo menos:
+
+- `leakguard_agent_api_bearer_token`
+
+O nome do grupo de variaveis e livre, mas a chave interna precisa ser exatamente
+`leakguard_agent_api_bearer_token`.
+
+Esse token e renderizado automaticamente dentro do `agent_config.json` por host no controller
+e depois enviado ao Windows via `WinRM`. Assim, o rollout em massa nao depende de editar
+configuracao manualmente em cada endpoint.
+
+Quando houver mudanca de codigo no agent, rode primeiro `install_agent_canary` para gerar
+o binario atualizado e devolve-lo ao cache local do controller. Depois disso, o template
+`install_agent` consegue reutilizar esse executavel nos demais hosts do inventario.
+
+Os templates `*_canary` rodam somente no `HOST-TEST2` por desenho. Para atingir
+`HOSTTESTE` e os demais hosts do grupo, use os templates sem `canary`.
 
 ## Redis para este projeto
 

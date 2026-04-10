@@ -1,5 +1,5 @@
 param(
-    [string]$ServiceName = "ScreenshotAuditAgent",
+    [string]$ServiceName = "Leakguard Agent",
     [string]$BinaryPath = "C:\Program Files\ScreenshotAudit\ScreenshotAuditAgent.exe",
     [string]$ConfigPath = "$env:ProgramData\ScreenshotAudit\agent_config.json",
     [string]$NssmPath = "C:\Tools\nssm\nssm.exe",
@@ -7,6 +7,8 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+
+$legacyServiceNames = @("ScreenshotAuditAgent") | Where-Object { $_ -and $_ -ne $ServiceName }
 
 if (-not (Test-Path $NssmPath)) {
     throw "NSSM nao encontrado em $NssmPath"
@@ -22,6 +24,15 @@ if (-not (Test-Path $ConfigPath)) {
 
 New-Item -ItemType Directory -Force -Path $ProgramDataRoot | Out-Null
 New-Item -ItemType Directory -Force -Path "$ProgramDataRoot\logs" | Out-Null
+
+$legacyServiceNames | ForEach-Object {
+    $legacyName = $_
+    $legacyService = Get-Service -Name $legacyName -ErrorAction SilentlyContinue
+    if ($legacyService) {
+        & $NssmPath stop $legacyName | Out-Null
+        & $NssmPath remove $legacyName confirm | Out-Null
+    }
+}
 
 $existing = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
 if ($existing) {

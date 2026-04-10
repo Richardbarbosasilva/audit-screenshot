@@ -266,7 +266,7 @@ def main() -> int:
     )
     client.login()
 
-    project = ensure_project(client, env("SEMAPHORE_PROJECT_NAME", "screenshot-audit"))
+    project = ensure_project(client, env("SEMAPHORE_PROJECT_NAME", "leakguard"))
     project_id = project["id"]
 
     view = ensure_view(client, project_id, env("SEMAPHORE_VIEW_TITLE", "Pilot"), position=1)
@@ -280,11 +280,17 @@ def main() -> int:
     repo = ensure_repository(
         client,
         project_id,
-        env("SEMAPHORE_REPOSITORY_NAME", "audit-screenshot"),
+        env("SEMAPHORE_REPOSITORY_NAME", "leakguard"),
         env("GIT_REPO_URL", required=True),
         env("GIT_REPO_BRANCH", "main"),
         key["id"],
     )
+    environment_variables = {
+        "ansible_password": env("WINRM_PASSWORD", required=True),
+    }
+    leakguard_agent_api_bearer_token = env("LEAKGUARD_AGENT_API_BEARER_TOKEN")
+    if leakguard_agent_api_bearer_token:
+        environment_variables["leakguard_agent_api_bearer_token"] = leakguard_agent_api_bearer_token
     inventory = ensure_inventory(
         client,
         project_id,
@@ -295,9 +301,7 @@ def main() -> int:
         client,
         project_id,
         env("SEMAPHORE_ENVIRONMENT_NAME", "sharex-pilot-winrm"),
-        {
-            "ansible_password": env("WINRM_PASSWORD", required=True),
-        },
+        environment_variables,
     )
     template = ensure_template(
         client,

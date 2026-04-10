@@ -1,0 +1,56 @@
+---
+- name: LeakGuard hot backup snapshot
+  hosts: leakguard_ops
+  gather_facts: false
+  ignore_unreachable: true
+  vars_files:
+    - ../group_vars/leakguard_ops.yml
+
+  pre_tasks:
+    - name: Check SSH connectivity before hot backup
+      ansible.builtin.ping:
+      register: host_ping
+      ignore_unreachable: true
+      ignore_errors: true
+
+    - name: Show connectivity skip summary
+      ansible.builtin.debug:
+        msg:
+          - "Host: {{ inventory_hostname }}"
+          - "Target: {{ ansible_host }}"
+          - "Status: SKIPPED"
+          - >-
+            Detalhe: {{
+              host_ping.msg
+              | default('host offline ou sem conectividade SSH no momento')
+            }}
+      when: host_ping.ping | default('') != 'pong'
+
+    - name: Stop hot backup on unreachable host
+      ansible.builtin.meta: end_host
+      when: host_ping.ping | default('') != 'pong'
+
+  tasks:
+    - name: Execute hot backup snapshot
+      ansible.builtin.command:
+        argv:
+          - "{{ leakguard_hot_backup_script }}"
+          - "{{ leakguard_backup_hot_root }}"
+      args:
+        chdir: "{{ leakguard_api_repo_root }}"
+      become: true
+      register: hot_backup
+      changed_when: true
+
+    - name: Parse hot backup output
+      ansible.builtin.set_fact:
+        leakguard_hot_backup: "{{ hot_backup.stdout | from_json }}"
+
+    - name: Show hot backup summary
+      ansible.builtin.debug:
+        msg:
+          - "Host: {{ inventory_hostname }}"
+          - "Snapshot: {{ leakguard_hot_backup.snapshot_dir }}"
+          - "Dump: {{ leakguard_hot_backup.postgres_dump }}"
+          - "Manifesto frio: {{ leakguard_hot_backup.cold_manifest }}"
+          - "Destino frio esperado: {{ leakguard_cold_target_label }}"

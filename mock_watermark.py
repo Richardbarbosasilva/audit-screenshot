@@ -17,7 +17,7 @@ import uuid
 from datetime import datetime
 from pathlib import Path
 from typing import Any
-from urllib.error import URLError
+from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 import boto3
@@ -95,8 +95,9 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "base_url": "",
         "heartbeat_path": "/api/v1/agents/heartbeat",
         "ingest_confirm_path": "/api/v1/ingest/confirm",
+        "bearer_token": "",
         "timeout_seconds": 5,
-        "heartbeat_interval_seconds": 60,
+        "heartbeat_interval_seconds": 15,
         "agent_id": "",
     },
 }
@@ -927,9 +928,14 @@ class ApiClient:
         self.base_url = str(api_config.get("base_url", "")).rstrip("/")
         self.heartbeat_path = str(api_config.get("heartbeat_path", "/api/v1/agents/heartbeat"))
         self.ingest_confirm_path = str(api_config.get("ingest_confirm_path", "/api/v1/ingest/confirm"))
+        self.bearer_token = str(api_config.get("bearer_token", "")).strip()
         self.timeout_seconds = int(api_config.get("timeout_seconds", 5))
         self.agent_id = str(api_config.get("agent_id", "")).strip()
         self.logger = logger
+        if self.enabled and not self.bearer_token:
+            self.logger.warning(
+                "API habilitada sem bearer_token configurado; heartbeat e confirmacao de ingestao vao falhar com 401."
+            )
 
     def send_heartbeat(self, payload: dict[str, Any]) -> dict[str, Any] | None:
         return self._post_json(self.heartbeat_path, payload)
@@ -943,18 +949,26 @@ class ApiClient:
 
         url = f"{self.base_url}{path}"
         body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        headers = {
+            "Content-Type": "application/json",
+            "User-Agent": f"ScreenshotAuditAgent/{payload.get('agent_version', '0.1')}",
+        }
+        if self.bearer_token:
+            headers["Authorization"] = f"Bearer {self.bearer_token}"
         request = Request(
             url,
             data=body,
-            headers={
-                "Content-Type": "application/json",
-                "User-Agent": f"ScreenshotAuditAgent/{payload.get('agent_version', '0.1')}",
-            },
+            headers=headers,
             method="POST",
         )
-        with urlopen(request, timeout=self.timeout_seconds) as response:
-            raw = response.read().decode("utf-8", errors="ignore").strip()
-            return json.loads(raw) if raw else {}
+        try:
+            with urlopen(request, timeout=self.timeout_seconds) as response:
+                raw = response.read().decode("utf-8", errors="ignore").strip()
+                return json.loads(raw) if raw else {}
+        except HTTPError as exc:
+            raw_error = exc.read().decode("utf-8", errors="ignore").strip()
+            detail = raw_error or exc.reason
+            raise RuntimeError(f"HTTP {exc.code} ao chamar {url}: {detail}") from exc
 
 
 def create_s3_client(config: dict[str, Any]):
@@ -1149,7 +1163,7 @@ def maybe_send_heartbeat(
     if not api_client.enabled:
         return last_sent_at
 
-    interval_seconds = int(config["api"].get("heartbeat_interval_seconds", 60))
+    interval_seconds = int(config["api"].get("heartbeat_interval_seconds", 15))
     now = time.monotonic()
     if not force and (now - last_sent_at) < interval_seconds:
         return last_sent_at

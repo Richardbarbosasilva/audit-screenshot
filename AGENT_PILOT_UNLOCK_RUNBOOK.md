@@ -15,10 +15,10 @@ Destravar o primeiro deploy funcional do `ScreenshotAuditAgent` no `HOST-TEST2`.
 
 Os playbooks do agent esperam estes arquivos no host Debian:
 
-- `/var/www/audit_screenshot/dist/ScreenshotAuditAgent.exe`
-- `/var/www/audit_screenshot/agent_config.json`
-- `/var/www/audit_screenshot/logo.png`
-- `/var/www/audit_screenshot/bin/nssm.exe`
+- `/var/www/leakguard/dist/ScreenshotAuditAgent.exe`
+- `/var/www/leakguard/agent_config.json`
+- `/var/www/leakguard/logo.png`
+- `/var/www/leakguard/bin/nssm.exe`
 
 ## Ordem exata de destravamento
 
@@ -73,19 +73,19 @@ Mantenha este caminho:
 
 1. Coloque o logo final em:
 
-- `/var/www/audit_screenshot/logo.png`
+- `/var/www/leakguard/logo.png`
 
 2. Coloque o `nssm.exe` em:
 
-- `/var/www/audit_screenshot/bin/nssm.exe`
+- `/var/www/leakguard/bin/nssm.exe`
 
 3. Copie o executavel gerado para:
 
-- `/var/www/audit_screenshot/dist/ScreenshotAuditAgent.exe`
+- `/var/www/leakguard/dist/ScreenshotAuditAgent.exe`
 
 4. Copie o config final para:
 
-- `/var/www/audit_screenshot/agent_config.json`
+- `/var/www/leakguard/agent_config.json`
 
 ### 5. Rodar o deploy do agent
 

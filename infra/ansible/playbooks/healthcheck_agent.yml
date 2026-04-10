@@ -1,5 +1,5 @@
 ---
-- name: Healthcheck screenshot audit agent
+- name: Healthcheck Leakguard Agent
   hosts: sharex_pilot
   gather_facts: false
   ignore_unreachable: true
@@ -13,12 +13,12 @@
       ignore_unreachable: true
       ignore_errors: true
 
-    - name: Show connectivity skip summary
+    - name: Show connectivity failure summary
       ansible.builtin.debug:
         msg:
           - "Host: {{ inventory_hostname }}"
           - "Target: {{ ansible_host }}"
-          - "Status: SKIPPED"
+          - "Status: FALHOU"
           - >-
             Detalhe: {{
               winrm_ping_result.msg

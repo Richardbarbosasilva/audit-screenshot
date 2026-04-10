@@ -4,7 +4,7 @@
 
 Crie um projeto no Semaphore chamado:
 
-- `screenshot-audit`
+- `leakguard`
 
 ## Inventories
 
@@ -21,11 +21,15 @@ Variaveis comuns:
 Credenciais:
 
 - `ansible_password`
+- `leakguard_agent_api_bearer_token`
 
 Observacao:
 
 - o metodo de conexao e o usuario de cada host devem vir do inventario
-- isso permite misturar `psrp/negotiate` e `winrm/kerberos` no piloto sem criar varios templates
+- use o mesmo padrao de dominio (`winrm/kerberos`) nos hosts que ja estao no AD para evitar divergencias entre piloto e producao
+- o secret do token da API deve usar exatamente a chave `leakguard_agent_api_bearer_token`
+- o nome do grupo de variaveis pode ser qualquer um, mas a chave interna deve ser exatamente `leakguard_agent_api_bearer_token`
+- os templates `*_canary` executam apenas no `HOST-TEST2`; os templates sem `canary` usam todo o grupo `sharex_pilot`
 
 ## Templates iniciais
 
@@ -65,6 +69,67 @@ Observacao:
 - playbook: `infra/ansible/playbooks/healthcheck_agent.yml`
 - canario pronto: `infra/ansible/playbooks/healthcheck_agent_canary.yml`
 
+## Templates operacionais do LeakGuard
+
+### 7. leakguard_capacity_report
+
+- inventory: `leakguard-lab`
+- playbook: `infra/ansible/playbooks/leakguard_capacity_report.yml`
+- uso: leitura do estado de retenção, Redis, volumetria quente e candidatos frios
+
+### 8. leakguard_maintenance_dry_run
+
+- inventory: `leakguard-lab`
+- playbook: `infra/ansible/playbooks/leakguard_maintenance.yml`
+- extra vars:
+  - `leakguard_maintenance_execute=false`
+  - `leakguard_maintenance_prune_evidence=false`
+
+### 9. leakguard_maintenance_execute
+
+- inventory: `leakguard-lab`
+- playbook: `infra/ansible/playbooks/leakguard_maintenance.yml`
+- extra vars:
+  - `leakguard_maintenance_execute=true`
+  - `leakguard_maintenance_prune_evidence=false`
+
+### 10. leakguard_prune_evidence
+
+- inventory: `leakguard-lab`
+- playbook: `infra/ansible/playbooks/leakguard_maintenance.yml`
+- extra vars:
+  - `leakguard_maintenance_execute=true`
+  - `leakguard_maintenance_prune_evidence=true`
+  - `leakguard_maintenance_batch_size=500`
+
+### 11. leakguard_hot_backup
+
+- inventory: `leakguard-lab`
+- playbook: `infra/ansible/playbooks/leakguard_hot_backup.yml`
+- uso: snapshot quente com `pg_dump`, runtime report e manifesto da camada fria
+
+## Inventário do host do LeakGuard
+
+Novo inventário sugerido:
+
+- `leakguard-lab`
+- arquivo: `infra/ansible/inventories/leakguard_lab.ini`
+
+Observações:
+
+- o runner do `Semaphore` atual não tem `docker` nem `docker.sock`
+- por isso os templates do LeakGuard devem executar no host Linux via `SSH`
+- os playbooks chamam os wrappers em `/var/www/leakguard-api/deploy/run-*.sh`
+- configure credencial SSH para o host e `become password` quando necessário
+
+## Agenda sugerida
+
+- `leakguard_capacity_report`: sob demanda ou 1x por dia
+- `leakguard_maintenance_dry_run`: sob demanda antes de ajuste de política
+- `leakguard_maintenance_execute`: a cada hora
+- `leakguard_prune_evidence`: 1x ao dia, fora do horário de pico
+- `leakguard_hot_backup`: 1x ao dia antes do off-site do `Duplicati`
+
 ## Como isso aparece no UI
 
 Cada execução mostra:
@@ -78,8 +143,8 @@ Cada execução mostra:
 
 ## Limites uteis no piloto
 
-- `HOST-TEST2`: canario ja funcional com `psrp/negotiate`
 - `HOSTTESTE`: validado com `winrm/kerberos` e `managed kinit`
+- `HOST-TEST2`: deve seguir o mesmo padrao de dominio/kerberos do `HOSTTESTE`
 
 ## Estratégia de rollout
 

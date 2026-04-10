@@ -1,5 +1,5 @@
 ---
-- name: Install or update screenshot audit agent
+- name: Install or update Leakguard Agent
   hosts: sharex_pilot
   gather_facts: false
   serial: 1
@@ -14,12 +14,12 @@
       ignore_unreachable: true
       ignore_errors: true
 
-    - name: Show connectivity skip summary
+    - name: Show connectivity failure summary
       ansible.builtin.debug:
         msg:
           - "Host: {{ inventory_hostname }}"
           - "Target: {{ ansible_host }}"
-          - "Status: SKIPPED"
+          - "Status: FALHOU"
           - >-
             Detalhe: {{
               winrm_ping_result.msg
@@ -30,6 +30,55 @@
     - name: Stop agent rollout on unreachable host
       ansible.builtin.meta: end_host
       when: winrm_ping_result.ping | default('') != 'pong'
+
+    - name: Require API bearer token for automated rollout
+      ansible.builtin.assert:
+        that:
+          - (leakguard_agent_api_bearer_token | default('') | trim | length) > 0
+        fail_msg: >-
+          Defina leakguard_agent_api_bearer_token como secret/extra var no Semaphore
+          para que o agent autentique heartbeat e confirmacao de ingestao.
+
+    - name: Load base agent config from the controller
+      ansible.builtin.set_fact:
+        agent_config_base: "{{ lookup('file', agent_config_local_path) | from_json }}"
+      no_log: true
+
+    - name: Build rendered agent config for the current host
+      ansible.builtin.set_fact:
+        agent_config_rendered: >-
+          {{
+            agent_config_base
+            | combine(
+                {
+                  "api": {
+                    "enabled": true,
+                    "base_url": agent_api_base_url,
+                    "heartbeat_path": "/api/v1/agents/heartbeat",
+                    "ingest_confirm_path": "/api/v1/ingest/confirm",
+                    "bearer_token": (leakguard_agent_api_bearer_token | trim),
+                    "agent_id": inventory_hostname
+                  }
+                },
+                recursive=True
+              )
+          }}
+      no_log: true
+
+    - name: Create temporary rendered config path on the controller
+      ansible.builtin.tempfile:
+        state: file
+        suffix: ".json"
+      delegate_to: localhost
+      register: rendered_agent_config_local_file
+
+    - name: Render per-host agent config on the controller
+      ansible.builtin.template:
+        src: "{{ agent_config_template_local_path }}"
+        dest: "{{ rendered_agent_config_local_file.path }}"
+        mode: "0600"
+      delegate_to: localhost
+      no_log: true
 
   tasks:
     - name: Ensure agent directories exist
@@ -111,7 +160,7 @@
       delegate_to: localhost
       register: local_agent_binary
 
-    - name: Stop ScreenshotAuditAgent before refreshing the binary
+    - name: Stop existing agent service before refreshing the binary
       ansible.windows.win_service:
         name: "{{ agent_service_name }}"
         state: stopped
@@ -217,10 +266,11 @@
       register: copied_binary
       when: not local_agent_binary.stat.exists
 
-    - name: Copy agent config
+    - name: Copy rendered agent config
       ansible.windows.win_copy:
-        src: "{{ agent_config_local_path }}"
+        src: "{{ rendered_agent_config_local_file.path }}"
         dest: "{{ agent_config_remote_path }}"
+      no_log: true
 
     - name: Copy agent logo
       ansible.windows.win_copy:
@@ -237,7 +287,7 @@
         src: "{{ install_agent_service_local_path }}"
         dest: "{{ agent_install_script_remote_path }}"
 
-    - name: Install or update ScreenshotAuditAgent service
+    - name: Install or update Leakguard Agent service
       ansible.windows.win_powershell:
         script: |
           powershell.exe -ExecutionPolicy Bypass -File "{{ agent_install_script_remote_path }}" `
@@ -263,3 +313,11 @@
           - "Binary metadata: {{ copied_binary.output | default([]) }}"
           - "Changed/Executed: {{ agent_install.changed }}"
           - "{{ agent_install.output | default([]) }}"
+
+  post_tasks:
+    - name: Remove temporary rendered config from the controller
+      ansible.builtin.file:
+        path: "{{ rendered_agent_config_local_file.path }}"
+        state: absent
+      delegate_to: localhost
+      when: rendered_agent_config_local_file.path is defined

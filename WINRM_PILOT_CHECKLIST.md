@@ -67,7 +67,7 @@ Exemplo de inventario inicial hibrido para lab:
 ```ini
 [pilot]
 HOSTTESTE ansible_host=192.168.1.4 ansible_connection=winrm ansible_port=5985 ansible_winrm_scheme=http ansible_winrm_transport=kerberos ansible_winrm_kinit_mode=managed ansible_winrm_service=HOST ansible_winrm_kerberos_hostname_override=HOSTTESTE.wsus.lab.local ansible_user=Administrator@WSUS.LAB.LOCAL
-HOST-TEST2 ansible_host=192.168.1.16 ansible_connection=psrp ansible_port=5985 ansible_psrp_auth=negotiate ansible_psrp_cert_validation=ignore ansible_user=Administrator
+HOST-TEST2 ansible_host=192.168.1.16 ansible_connection=winrm ansible_port=5985 ansible_winrm_scheme=http ansible_winrm_transport=kerberos ansible_winrm_kinit_mode=managed ansible_winrm_service=HOST ansible_winrm_kerberos_hostname_override=HOST-TEST2.wsus.lab.local ansible_user=Administrator@WSUS.LAB.LOCAL
 ```
 
 Teste de conectividade:

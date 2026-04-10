@@ -1,0 +1,12 @@
+leakguard_api_repo_root: "/var/www/leakguard-api"
+leakguard_capacity_report_script: "/var/www/leakguard-api/deploy/run-capacity-report.sh"
+leakguard_maintenance_script: "/var/www/leakguard-api/deploy/run-maintenance.sh"
+leakguard_hot_backup_script: "/var/www/leakguard-api/deploy/run-hot-backup.sh"
+
+leakguard_backup_hot_root: "/var/backups/leakguard/hot"
+leakguard_cold_target_label: "DTI > leakguard_test"
+leakguard_cold_target_url: "https://drive.google.com/drive/folders/15d5k81Z-rhFie3NO_6fnE19DQ7-zWGzo?hl=pt-br"
+
+leakguard_maintenance_execute: false
+leakguard_maintenance_prune_evidence: false
+leakguard_maintenance_batch_size: 500

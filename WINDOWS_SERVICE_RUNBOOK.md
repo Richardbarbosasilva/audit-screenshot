@@ -38,7 +38,11 @@ python -m pip install -r requirements-agent.txt pyinstaller
    - `minio.access_key`
    - `minio.secret_key`
    - `routing.external_ip_map`
+   - `api.bearer_token`
 3. Ajuste o logo em `%ProgramData%\ScreenshotAudit\assets\logo.png`.
+
+O `api.bearer_token` deve ser emitido pelo LeakGuard em `POST /api/v1/auth/token`.
+Sem esse token, o agente vai falhar com `401` ao registrar heartbeat e ao confirmar a ingestao dos prints.
 
 ## 3. Gerar o executavel
 
@@ -110,6 +114,7 @@ Get-Content "$env:ProgramData\ScreenshotAudit\logs\agent.log" -Tail 50
    - entrou no spool
    - foi watermarkado
    - subiu no bucket esperado
+   - foi aceito pela API sem `401`
    - foi apagado localmente apos sucesso
 
 ## 7. Distribuicao inicial

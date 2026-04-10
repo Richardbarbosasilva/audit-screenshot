@@ -3,13 +3,14 @@ sharex_installer_remote_path: 'C:\Windows\Temp\ShareX-19.0.2-setup.exe'
 sharex_version: "19.0.2"
 sharex_personal_path: 'C:\ProgramData\ScreenshotAudit\spool'
 
-agent_source_local_path: "/var/www/audit_screenshot/mock_watermark.py"
-agent_requirements_local_path: "/var/www/audit_screenshot/requirements-agent.txt"
-agent_build_local_path: "/var/www/audit_screenshot/dist/ScreenshotAuditAgent.exe"
-agent_config_local_path: "/var/www/audit_screenshot/agent_config.json"
-agent_logo_local_path: "/var/www/audit_screenshot/logo.png"
-nssm_local_path: "/var/www/audit_screenshot/bin/nssm.exe"
-install_agent_service_local_path: "/var/www/audit_screenshot/install_agent_service.ps1"
+agent_source_local_path: "/var/www/leakguard/mock_watermark.py"
+agent_requirements_local_path: "/var/www/leakguard/requirements-agent.txt"
+agent_build_local_path: "/tmp/semaphore-agent-builds/ScreenshotAuditAgent.exe"
+agent_config_local_path: "/var/www/leakguard/agent_config.json"
+agent_config_template_local_path: "/var/www/leakguard/infra/ansible/templates/agent_config.json.j2"
+agent_logo_local_path: "/var/www/leakguard/logo.png"
+nssm_local_path: "/var/www/leakguard/bin/nssm.exe"
+install_agent_service_local_path: "/var/www/leakguard/install_agent_service.ps1"
 
 agent_install_root: 'C:\Program Files\ScreenshotAudit'
 agent_programdata_root: 'C:\ProgramData\ScreenshotAudit'
@@ -18,7 +19,7 @@ agent_config_remote_path: 'C:\ProgramData\ScreenshotAudit\agent_config.json'
 agent_logo_remote_path: 'C:\ProgramData\ScreenshotAudit\assets\logo.png'
 agent_nssm_remote_path: 'C:\Program Files\ScreenshotAudit\nssm.exe'
 agent_install_script_remote_path: 'C:\Program Files\ScreenshotAudit\install_agent_service.ps1'
-agent_service_name: "ScreenshotAuditAgent"
+agent_service_name: "Leakguard Agent"
 agent_build_workspace_remote: 'C:\Build\ScreenshotAudit'
 agent_build_source_remote_dir: 'C:\Build\ScreenshotAudit\src'
 agent_build_script_remote_path: 'C:\Build\ScreenshotAudit\src\mock_watermark.py'
@@ -29,6 +30,7 @@ agent_storage_host_alias: "s3.homelab.local"
 agent_storage_host_ip: "192.168.1.12"
 agent_console_host_alias: "minio.homelab.local"
 agent_console_host_ip: "192.168.1.12"
-agent_api_host_alias: "audit-sharex-api.homelab.local"
+agent_api_host_alias: "leakguard-api.homelab.local"
 agent_api_host_ip: "192.168.1.12"
 agent_api_port: 8010
+agent_api_base_url: "http://{{ agent_api_host_alias }}:{{ agent_api_port }}"

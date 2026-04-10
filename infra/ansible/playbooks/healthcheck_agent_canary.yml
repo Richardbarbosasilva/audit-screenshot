@@ -1,5 +1,5 @@
 ---
-- name: Healthcheck screenshot audit agent on the canary host
+- name: Healthcheck Leakguard Agent on the canary host
   hosts: HOST-TEST2
   gather_facts: false
   ignore_unreachable: true
@@ -13,12 +13,12 @@
       ignore_unreachable: true
       ignore_errors: true
 
-    - name: Show canary connectivity skip summary
+    - name: Show canary connectivity failure summary
       ansible.builtin.debug:
         msg:
           - "Host: {{ inventory_hostname }}"
           - "Target: {{ ansible_host }}"
-          - "Status: SKIPPED"
+          - "Status: FALHOU"
           - >-
             Detalhe: {{
               winrm_ping_result.msg

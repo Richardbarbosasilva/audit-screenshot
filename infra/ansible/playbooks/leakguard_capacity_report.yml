@@ -1,0 +1,56 @@
+---
+- name: LeakGuard capacity and retention report
+  hosts: leakguard_ops
+  gather_facts: false
+  ignore_unreachable: true
+  vars_files:
+    - ../group_vars/leakguard_ops.yml
+
+  pre_tasks:
+    - name: Check SSH connectivity before capacity report
+      ansible.builtin.ping:
+      register: host_ping
+      ignore_unreachable: true
+      ignore_errors: true
+
+    - name: Show connectivity skip summary
+      ansible.builtin.debug:
+        msg:
+          - "Host: {{ inventory_hostname }}"
+          - "Target: {{ ansible_host }}"
+          - "Status: SKIPPED"
+          - >-
+            Detalhe: {{
+              host_ping.msg
+              | default('host offline ou sem conectividade SSH no momento')
+            }}
+      when: host_ping.ping | default('') != 'pong'
+
+    - name: Stop report on unreachable host
+      ansible.builtin.meta: end_host
+      when: host_ping.ping | default('') != 'pong'
+
+  tasks:
+    - name: Generate capacity report
+      ansible.builtin.command: "{{ leakguard_capacity_report_script }}"
+      args:
+        chdir: "{{ leakguard_api_repo_root }}"
+      become: true
+      register: capacity_report
+      changed_when: false
+
+    - name: Parse capacity report JSON
+      ansible.builtin.set_fact:
+        leakguard_capacity: "{{ capacity_report.stdout | from_json }}"
+
+    - name: Show capacity summary
+      ansible.builtin.debug:
+        msg:
+          - "Host: {{ inventory_hostname }}"
+          - "Eventos totais: {{ leakguard_capacity.events.total }}"
+          - "Evidências quentes: {{ leakguard_capacity.events.hot_with_binary }}"
+          - "Bytes quentes: {{ leakguard_capacity.events.hot_binary_bytes }}"
+          - "Candidatos frios: {{ leakguard_capacity.events.cold_candidates }}"
+          - "Fila Redis pendente: {{ leakguard_capacity.redis.queue.pending_jobs }}"
+          - "Cache Redis keys: {{ leakguard_capacity.redis.cache.key_count }}"
+          - "Camada fria: {{ leakguard_capacity.storage_layers.cold.target }}"

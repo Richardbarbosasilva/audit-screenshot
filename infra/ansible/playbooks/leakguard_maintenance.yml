@@ -1,0 +1,72 @@
+---
+- name: LeakGuard maintenance and retention run
+  hosts: leakguard_ops
+  gather_facts: false
+  ignore_unreachable: true
+  vars_files:
+    - ../group_vars/leakguard_ops.yml
+
+  pre_tasks:
+    - name: Check SSH connectivity before maintenance
+      ansible.builtin.ping:
+      register: host_ping
+      ignore_unreachable: true
+      ignore_errors: true
+
+    - name: Show connectivity skip summary
+      ansible.builtin.debug:
+        msg:
+          - "Host: {{ inventory_hostname }}"
+          - "Target: {{ ansible_host }}"
+          - "Status: SKIPPED"
+          - >-
+            Detalhe: {{
+              host_ping.msg
+              | default('host offline ou sem conectividade SSH no momento')
+            }}
+      when: host_ping.ping | default('') != 'pong'
+
+    - name: Stop maintenance on unreachable host
+      ansible.builtin.meta: end_host
+      when: host_ping.ping | default('') != 'pong'
+
+  tasks:
+    - name: Execute maintenance command
+      ansible.builtin.shell: >-
+        {{ leakguard_maintenance_script }}
+        {% if leakguard_maintenance_execute %} --execute{% endif %}
+        {% if leakguard_maintenance_prune_evidence %} --prune-evidence{% endif %}
+        {% if leakguard_maintenance_batch_size %} --batch-size {{ leakguard_maintenance_batch_size }}{% endif %}
+      args:
+        chdir: "{{ leakguard_api_repo_root }}"
+      become: true
+      register: maintenance_run
+      changed_when: >-
+        {{
+          leakguard_maintenance_execute
+          and (
+            (maintenance_run.stdout | from_json).cleanup.heartbeats.deleted_rows > 0
+            or (maintenance_run.stdout | from_json).cleanup.access_logs.deleted_rows > 0
+            or (maintenance_run.stdout | from_json).cleanup.auth_logs.deleted_rows > 0
+            or (maintenance_run.stdout | from_json).cleanup.ldap_logs.deleted_rows > 0
+            or (maintenance_run.stdout | from_json).cleanup.inactive_api_tokens.deleted_rows > 0
+            or (maintenance_run.stdout | from_json).analysis_temp.deleted_files > 0
+            or (maintenance_run.stdout | from_json).evidence.pruned_rows > 0
+          )
+        }}
+
+    - name: Parse maintenance JSON
+      ansible.builtin.set_fact:
+        leakguard_maintenance_summary: "{{ maintenance_run.stdout | from_json }}"
+
+    - name: Show maintenance summary
+      ansible.builtin.debug:
+        msg:
+          - "Host: {{ inventory_hostname }}"
+          - "Executado: {{ leakguard_maintenance_summary.executed }}"
+          - "Prune evidência: {{ leakguard_maintenance_summary.prune_evidence }}"
+          - "Heartbeats elegíveis: {{ leakguard_maintenance_summary.cleanup.heartbeats.eligible_rows }}"
+          - "Logs de acesso elegíveis: {{ leakguard_maintenance_summary.cleanup.access_logs.eligible_rows }}"
+          - "Tokens inativos elegíveis: {{ leakguard_maintenance_summary.cleanup.inactive_api_tokens.eligible_rows }}"
+          - "Evidências elegíveis: {{ leakguard_maintenance_summary.evidence.eligible_total_rows }}"
+          - "Evidências podadas: {{ leakguard_maintenance_summary.evidence.pruned_rows }}"

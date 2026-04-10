@@ -236,7 +236,7 @@
               try {
                 Stop-Service -Name $serviceName -Force -ErrorAction Stop
               } catch {
-                Write-Host "Falha ao parar o servico $serviceName: $($_.Exception.Message)"
+                Write-Host ("Falha ao parar o servico {0}: {1}" -f $serviceName, $_.Exception.Message)
               }
             }
           }
@@ -248,7 +248,7 @@
               try {
                 Stop-Process -Id $_.Id -Force -ErrorAction Stop
               } catch {
-                Write-Host "Falha ao encerrar o processo $($_.ProcessName) [$($_.Id)]: $($_.Exception.Message)"
+                Write-Host ("Falha ao encerrar o processo {0} [{1}]: {2}" -f $_.ProcessName, $_.Id, $_.Exception.Message)
               }
             }
           }

@@ -1,0 +1,43 @@
+{
+  "server": "192.168.1.200",
+  "port": 389,
+  "use_ssl": false,
+  "bind_user": "administrator@wsus.lab.local",
+  "bind_password_env": "LEAKGUARD_AD_BIND_PASSWORD",
+  "receive_timeout_seconds": 20,
+  "computer_name_attr": "name",
+  "host_attr": "dNSHostName",
+  "kerberos_hostname_override_attr": "dNSHostName",
+  "groups": [
+    {
+      "name": "sharex_pilot",
+      "search_base": "CN=Computers,DC=wsus,DC=lab,DC=local",
+      "ldap_filter": "(&(objectClass=computer)(!(userAccountControl:1.2.840.113556.1.4.803:=2)))",
+      "vars": {
+        "ansible_connection": "winrm",
+        "ansible_port": 5985,
+        "ansible_winrm_scheme": "http",
+        "ansible_winrm_transport": "kerberos",
+        "ansible_winrm_kinit_mode": "managed",
+        "ansible_winrm_service": "HOST",
+        "ansible_winrm_server_cert_validation": "ignore",
+        "ansible_user": "Administrator@WSUS.LAB.LOCAL"
+      }
+    },
+    {
+      "name": "sharex-prod-instancia-a",
+      "search_base": "OU=Computers,OU=Instancia-A,DC=empresa,DC=local",
+      "ldap_filter": "(&(objectClass=computer)(!(userAccountControl:1.2.840.113556.1.4.803:=2)))",
+      "vars": {
+        "ansible_connection": "winrm",
+        "ansible_port": 5985,
+        "ansible_winrm_scheme": "http",
+        "ansible_winrm_transport": "kerberos",
+        "ansible_winrm_kinit_mode": "managed",
+        "ansible_winrm_service": "HOST",
+        "ansible_winrm_server_cert_validation": "ignore",
+        "ansible_user": "Administrator@EMPRESA.LOCAL"
+      }
+    }
+  ]
+}

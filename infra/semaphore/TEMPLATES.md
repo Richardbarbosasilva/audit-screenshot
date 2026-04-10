@@ -10,6 +10,9 @@ Crie um projeto no Semaphore chamado:
 
 - `sharex-pilot`
 - depois: `sharex-clickip`, `sharex-fiber`, `sharex-intlink`
+- para producao, prefira um inventario dinamico por AD/LDAP baseado em OU:
+  - script: `infra/ansible/inventories/ad_ou_inventory.py`
+  - exemplo de config: `infra/ansible/inventories/ad_ou_inventory.example.json`
 
 ## Environment
 
@@ -51,12 +54,14 @@ Observacao:
 - inventory: `sharex-pilot`
 - playbook: `infra/ansible/playbooks/install_agent.yml`
 - canario pronto: `infra/ansible/playbooks/install_agent_canary.yml`
+- para atualizar so o `HOSTTESTE` sem passar pelo canario, use `Limit=HOSTTESTE` no template
 
 ### 4. configure_sharex_spool
 
 - inventory: `sharex-pilot`
 - playbook: `infra/ansible/playbooks/configure_sharex_spool.yml`
 - canario pronto: `infra/ansible/playbooks/configure_sharex_spool_canary.yml`
+- para atualizar so o `HOSTTESTE`, use `Limit=HOSTTESTE`
 
 ### 5. uninstall_lightshot
 
@@ -69,6 +74,7 @@ Observacao:
 - inventory: `sharex-pilot`
 - playbook: `infra/ansible/playbooks/healthcheck_agent.yml`
 - canario pronto: `infra/ansible/playbooks/healthcheck_agent_canary.yml`
+- para validar so o `HOSTTESTE`, use `Limit=HOSTTESTE`
 
 ## Templates operacionais do LeakGuard
 
@@ -146,6 +152,31 @@ Cada execução mostra:
 
 - `HOSTTESTE`: validado com `winrm/kerberos` e `managed kinit`
 - `HOST-TEST2`: deve seguir o mesmo padrao de dominio/kerberos do `HOSTTESTE`
+
+## Inventario dinamico por AD
+
+Fluxo recomendado para producao:
+
+- uma OU/grupo por instancia do LeakGuard
+- o Semaphore consome um inventario dinamico em vez de manter hosts hardcoded
+- o playbook continua rodando no grupo (`sharex_prod_instancia_a`, `sharex_prod_instancia_b`, etc.)
+
+Exemplo do seu laboratorio atual:
+
+- `CN=Computers,DC=wsus,DC=lab,DC=local`
+
+Exemplo de producao:
+
+- `OU=Computers,OU=Instancia-A,DC=empresa,DC=local`
+- `OU=Computers,OU=Instancia-B,DC=empresa,DC=local`
+- `OU=Computers,OU=Instancia-C,DC=empresa,DC=local`
+
+Para usar no Semaphore:
+
+1. crie um inventario do tipo `file`
+2. aponte para `infra/ansible/inventories/ad_ou_inventory.py`
+3. defina a env `LEAKGUARD_AD_BIND_PASSWORD`
+4. copie o exemplo para `infra/ansible/inventories/ad_ou_inventory.json` e ajuste os `search_base`
 
 ## Estratégia de rollout
 

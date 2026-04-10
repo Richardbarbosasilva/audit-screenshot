@@ -39,6 +39,29 @@
         name: "{{ agent_service_name }}"
       register: agent_service
 
+    - name: Inspect rendered agent config
+      ansible.windows.win_powershell:
+        script: |
+          $configPath = "{{ agent_programdata_root }}\agent_config.json"
+          if (-not (Test-Path $configPath)) {
+            Write-Output "agent_config.json not found"
+            exit 0
+          }
+
+          $config = Get-Content $configPath -Raw | ConvertFrom-Json
+          [pscustomobject]@{
+            config_path = $configPath
+            api_enabled = [bool]$config.api.enabled
+            api_base_url = [string]$config.api.base_url
+            heartbeat_path = [string]$config.api.heartbeat_path
+            ingest_confirm_path = [string]$config.api.ingest_confirm_path
+            bearer_token_present = -not [string]::IsNullOrWhiteSpace([string]$config.api.bearer_token)
+            agent_id = [string]$config.api.agent_id
+            spool_dir = [string]$config.paths.spool_dir
+            log_path = [string]$config.paths.log_path
+          } | ConvertTo-Json -Compress
+      register: agent_config_summary
+
     - name: Check queue database
       ansible.windows.win_stat:
         path: "{{ agent_programdata_root }}\\data\\queue.db"
@@ -55,6 +78,28 @@
           }
       register: agent_log
 
+    - name: Tail service stdout log
+      ansible.windows.win_powershell:
+        script: |
+          $log = "{{ agent_programdata_root }}\logs\service-stdout.log"
+          if (Test-Path $log) {
+            Get-Content $log -Tail 30
+          } else {
+            Write-Output "service-stdout.log not found"
+          }
+      register: service_stdout_log
+
+    - name: Tail service stderr log
+      ansible.windows.win_powershell:
+        script: |
+          $log = "{{ agent_programdata_root }}\logs\service-stderr.log"
+          if (Test-Path $log) {
+            Get-Content $log -Tail 30
+          } else {
+            Write-Output "service-stderr.log not found"
+          }
+      register: service_stderr_log
+
     - name: Show health summary
       ansible.builtin.debug:
         msg:
@@ -64,6 +109,12 @@
           - "User: {{ ansible_user | default('n/a') }}"
           - "Service exists: {{ agent_service.exists | default(false) }}"
           - "Service state: {{ (agent_service.services | default([]) | first).state | default('missing') }}"
+          - "Agent config summary:"
+          - "{{ agent_config_summary.output | default([]) }}"
           - "Queue DB exists: {{ queue_db.stat.exists }}"
-          - "Recent log lines:"
+          - "Recent agent.log lines:"
           - "{{ agent_log.output | default([]) }}"
+          - "Recent service-stdout.log lines:"
+          - "{{ service_stdout_log.output | default([]) }}"
+          - "Recent service-stderr.log lines:"
+          - "{{ service_stderr_log.output | default([]) }}"

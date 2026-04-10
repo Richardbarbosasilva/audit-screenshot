@@ -223,11 +223,59 @@
           $python
       register: python_path
 
-    - name: Stop existing agent service before refreshing the binary on the canary host
-      ansible.windows.win_service:
-        name: "{{ agent_service_name }}"
-        state: stopped
-      ignore_errors: true
+    - name: Stop existing agent service and release executable lock on the canary host
+      ansible.windows.win_powershell:
+        script: |
+          $serviceNames = @("{{ agent_service_name }}", "ScreenshotAuditAgent")
+          $binaryPath = "{{ agent_binary_remote_path }}"
+          $processNames = @("ScreenshotAuditAgent", "nssm")
+
+          foreach ($serviceName in $serviceNames) {
+            $service = Get-Service -Name $serviceName -ErrorAction SilentlyContinue
+            if ($null -ne $service -and $service.Status -ne 'Stopped') {
+              try {
+                Stop-Service -Name $serviceName -Force -ErrorAction Stop
+              } catch {
+                Write-Host "Falha ao parar o servico $serviceName: $($_.Exception.Message)"
+              }
+            }
+          }
+
+          Start-Sleep -Seconds 2
+
+          foreach ($processName in $processNames) {
+            Get-Process -Name $processName -ErrorAction SilentlyContinue | ForEach-Object {
+              try {
+                Stop-Process -Id $_.Id -Force -ErrorAction Stop
+              } catch {
+                Write-Host "Falha ao encerrar o processo $($_.ProcessName) [$($_.Id)]: $($_.Exception.Message)"
+              }
+            }
+          }
+
+          $released = $false
+          for ($i = 0; $i -lt 20; $i++) {
+            if (-not (Test-Path $binaryPath)) {
+              $released = $true
+              break
+            }
+
+            try {
+              $stream = [System.IO.File]::Open($binaryPath, 'Open', 'ReadWrite', 'None')
+              $stream.Close()
+              $released = $true
+              break
+            } catch {
+              Start-Sleep -Seconds 2
+            }
+          }
+
+          if (-not $released) {
+            throw "O binario $binaryPath permaneceu bloqueado apos a parada do servico."
+          }
+
+          "Executable lock released"
+      register: agent_binary_unlock
 
     - name: Build Leakguard Agent executable on the canary host
       ansible.windows.win_powershell:
@@ -338,6 +386,7 @@
           - "Hosts file pinned: {{ hosts_pin.output | default([]) }}"
           - "Storage health: {{ storage_health.output | default([]) }}"
           - "API health: {{ api_health.output | default([]) }}"
+          - "Executable unlock: {{ agent_binary_unlock.output | default([]) }}"
           - "Python: {{ python_path.output | default([]) }}"
           - "Build artifact: {{ agent_build.output | default([]) }}"
           - "Binary metadata: {{ copied_binary.output | default([]) }}"

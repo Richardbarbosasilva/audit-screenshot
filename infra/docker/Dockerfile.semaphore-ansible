@@ -8,6 +8,10 @@ ENV PATH="${ANSIBLE_VENV}/bin:${PATH}"
 COPY infra/ansible/requirements.txt /tmp/requirements.txt
 COPY infra/ansible/collections/requirements.yml /tmp/collections-requirements.yml
 COPY infra/docker/krb5.conf /etc/krb5.conf
+COPY infra/ansible/inventories/ad_ou_inventory.py /opt/semaphore/inventory/ad_ou_inventory.py
+COPY infra/ansible/inventories/ad_ou_inventory.json /opt/semaphore/inventory/ad_ou_inventory.json
+
+ENV LEAKGUARD_AD_INVENTORY_CONFIG=/opt/semaphore/inventory/ad_ou_inventory.json
 
 RUN apk add --no-cache \
       bash \

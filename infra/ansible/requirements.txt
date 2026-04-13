@@ -5,3 +5,4 @@ pyspnego[ntlm]>=0.10.0
 requests-credssp>=2.0.0
 pexpect>=4.9.0
 pykerberos>=1.2.4
+ldap3>=2.9.1

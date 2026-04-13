@@ -1,0 +1,25 @@
+{
+  "domain_controller": {
+    "host": "192.168.1.200",
+    "port": 5985,
+    "user": "Administrator@WSUS.LAB.LOCAL",
+    "transport": "ntlm"
+  },
+  "password_env": "LEAKGUARD_AD_BIND_PASSWORD",
+  "groups": [
+    {
+      "name": "sharex_pilot",
+      "search_base": "OU=sharex,DC=wsus,DC=lab,DC=local",
+      "vars": {
+        "ansible_connection": "winrm",
+        "ansible_port": 5985,
+        "ansible_winrm_scheme": "http",
+        "ansible_winrm_transport": "kerberos",
+        "ansible_winrm_kinit_mode": "managed",
+        "ansible_winrm_service": "HOST",
+        "ansible_winrm_server_cert_validation": "ignore",
+        "ansible_user": "Administrator@WSUS.LAB.LOCAL"
+      }
+    }
+  ]
+}
